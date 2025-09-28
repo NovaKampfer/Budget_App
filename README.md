@@ -25,3 +25,28 @@ It helps you track transactions, visualize balances on a monthly calendar, and s
 
 ## 📂 Project Structure
 
+Budget_app/
+├── db/
+│ └── database.py # SQLite database layer
+├── main.py # Application entry point (UI + logic)
+├── requirements.txt # Python dependencies
+├── run.bat # One-click launcher for Windows
+└── README.md # This file
+
+
+
+
+
+
+---
+
+## 🚀 Getting Started
+
+### 1. Install Python
+Make sure you have **Python 3.10+** installed.  
+Download from [python.org](https://www.python.org/downloads/).
+
+### 2. Clone or download this repo
+```bash
+git clone https://github.com/NovaKampfer/Budget_App.git
+cd Budget_App
