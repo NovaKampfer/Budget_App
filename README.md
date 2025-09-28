@@ -26,6 +26,7 @@ It helps you track transactions, visualize balances on a monthly calendar, and s
 ## 📂 Project Structure
 
 Budget_app/
+
 ├── db/
 
 │ └── database.py # SQLite database layer
