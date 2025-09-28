@@ -27,7 +27,9 @@ It helps you track transactions, visualize balances on a monthly calendar, and s
 
 Budget_app/
 ├── db/
+
 │ └── database.py # SQLite database layer
+
 ├── main.py # Application entry point (UI + logic)
 ├── requirements.txt # Python dependencies
 ├── run.bat # One-click launcher for Windows
