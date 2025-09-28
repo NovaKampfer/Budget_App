@@ -30,9 +30,13 @@ Budget_app/
 
 │ └── database.py # SQLite database layer
 
+
 ├── main.py # Application entry point (UI + logic)
+
 ├── requirements.txt # Python dependencies
+
 ├── run.bat # One-click launcher for Windows
+
 └── README.md # This file
 
 
