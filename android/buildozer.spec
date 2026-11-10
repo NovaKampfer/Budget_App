@@ -70,6 +70,10 @@ android.accept_sdk_license = True
 # (bool) Let Android back up the app's data (your budget) with your Google backup
 android.allow_backup = True
 
+# (str) The format used to package the app for release mode (aab or apk).
+# CI builds in release mode so every APK is signed with the same key.
+android.release_artifact = apk
+
 [buildozer]
 
 # (int) Log level (0 = error only, 1 = info, 2 = debug (with command output))

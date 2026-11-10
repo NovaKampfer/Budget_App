@@ -13,13 +13,21 @@ on:
       - "android/**"
       - ".github/workflows/android-apk.yml"
   workflow_dispatch:
+  # Weekly: touch the cached signing key so GitHub doesn't delete it
+  # (unused caches are removed after 7 days). See "keep-key" below.
+  schedule:
+    - cron: "41 7 * * 1"
 
 env:
   PYTHONFORANDROID_PREREQUISITES_INSTALL_INTERACTIVE: 0
+  # Name of the cache entry holding the app's signing key. Builds on the main
+  # branch save it; builds on every branch can read main's cache entries.
+  SIGNING_CACHE_KEY: easybudget-signing-key-v2
 
 jobs:
   tests:
     name: Unit tests
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -31,7 +39,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   apk:
-    name: Build debug APK
+    name: Build APK
     needs: tests
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -65,42 +73,75 @@ jobs:
           key: buildozer-sdk-${{ runner.os }}-${{ hashFiles('android/buildozer.spec') }}
           restore-keys: buildozer-sdk-${{ runner.os }}-
 
-      # Every APK must be signed with the SAME key, otherwise Android refuses
-      # to install it over the previous version (you'd have to uninstall and
-      # lose your data). Best: store a keystore in the DEBUG_KEYSTORE_BASE64
-      # secret (see android/README.md). Fallback: reuse a cached one.
-      - name: Restore cached signing key
+      # ------------------------------------------------------------------
+      # Signing. Android only installs an update over the app on your phone
+      # when both APKs are signed with the SAME key (otherwise you'd have to
+      # uninstall, losing your data). So every build signs with one key:
+      #   1. the DEBUG_KEYSTORE_BASE64 secret, if set (permanent - see
+      #      android/README.md), otherwise
+      #   2. the key saved in this repository's Actions cache by main builds.
+      # ------------------------------------------------------------------
+      - name: Restore signing key
+        id: key_cache
         if: env.HAS_KEYSTORE_SECRET != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: ~/.android/debug.keystore
-          key: android-debug-keystore-v1
-      - name: Use signing key from secret (if configured)
+          path: ~/easybudget-signing
+          key: ${{ env.SIGNING_CACHE_KEY }}
+
+      - name: Prepare signing key
         env:
-          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+          KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
-          if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
-            mkdir -p ~/.android
-            echo "$DEBUG_KEYSTORE_BASE64" | base64 --decode > ~/.android/debug.keystore
-            echo "Using the keystore from the DEBUG_KEYSTORE_BASE64 secret."
-          elif [ -f ~/.android/debug.keystore ]; then
-            echo "Using the cached keystore."
+          ks="$HOME/easybudget-signing/easybudget.keystore"
+          mkdir -p "$(dirname "$ks")"
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 --decode > "$ks"
+            source="the DEBUG_KEYSTORE_BASE64 secret"
+          elif [ -f "$ks" ]; then
+            source="the saved key (Actions cache)"
           else
-            echo "::warning::No saved signing key yet - a new one will be generated. See android/README.md to make it permanent."
+            keytool -genkeypair -noprompt -keystore "$ks" -storepass android \
+              -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 \
+              -validity 10000 -dname "CN=EasyBudget,O=EasyBudget,C=US"
+            if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+              source="a NEW key (saved now for all future builds)"
+            else
+              source="a TEMPORARY key (no key saved by a main build yet)"
+              echo "::warning::This APK is signed with a temporary key and won't install over other builds. Use the APK from a build of the main branch."
+            fi
           fi
+          fp=$(keytool -list -v -keystore "$ks" -storepass android -alias androiddebugkey \
+               | grep -m1 "SHA256:" | awk '{print $2}')
+          if [ -z "$fp" ]; then
+            echo "::error::Could not read the signing key"; exit 1
+          fi
+          {
+            echo "P4A_RELEASE_KEYSTORE=$ks"
+            echo "P4A_RELEASE_KEYSTORE_PASSWD=android"
+            echo "P4A_RELEASE_KEYALIAS=androiddebugkey"
+            echo "P4A_RELEASE_KEYALIAS_PASSWD=android"
+          } >> "$GITHUB_ENV"
+          echo "Signing with $source"
+          echo "Signing key SHA-256: $fp"
+          {
+            echo "**Signed with:** $source  "
+            echo "**Signing key (SHA-256):** \`$fp\`  "
+            echo "APKs install over each other only when this fingerprint matches."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build APK
         working-directory: android
-        run: buildozer android debug
+        run: buildozer android release
 
-      # APKs only install over each other when this fingerprint matches.
-      - name: Show signing key fingerprint
-        run: |
-          fp=$(keytool -list -v -keystore ~/.android/debug.keystore -storepass android \
-               | grep -m1 "SHA256:" | awk '{print $2}')
-          echo "Signing key SHA-256: $fp"
-          echo "**Signing key (SHA-256):** \`$fp\`  " >> "$GITHUB_STEP_SUMMARY"
-          echo "APKs install over each other only when this matches." >> "$GITHUB_STEP_SUMMARY"
+      - name: Save signing key (main branch, first time only)
+        if: >-
+          env.HAS_KEYSTORE_SECRET != 'true' && github.ref == 'refs/heads/main'
+          && steps.key_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/easybudget-signing
+          key: ${{ env.SIGNING_CACHE_KEY }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
@@ -108,3 +149,14 @@ jobs:
           name: EasyBudget-apk
           path: android/bin/*.apk
           if-no-files-found: error
+
+  keep-key:
+    name: Keep signing key cached
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Touch the cached signing key
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/easybudget-signing
+          key: ${{ env.SIGNING_CACHE_KEY }}

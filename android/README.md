@@ -53,30 +53,34 @@ later builds reuse a cache.
 
 #### Updating without losing data
 
-Install the new APK over the old one - your data stays. If Android says the
-app "conflicts with an existing package", the new APK was signed with a
-different key (each build shows its key fingerprint in the run summary). In
-that case: **Settings → Export data**, uninstall, install the new APK, then
-**Settings → Import data**.
+Always take the APK from the newest run on the **main** branch and install it
+over the app you have - your data stays. Every build is signed with the same
+key (its fingerprint is shown in each run's summary), which is what lets
+Android update the app in place.
 
-#### Keep updates installable (recommended, one time)
+If Android ever says the app "conflicts with an existing package", the new APK
+has a different key. Then: **Settings → Export data**, uninstall, install the
+new APK, and **Settings → Import data**.
 
-Android only installs an update over the existing app if both APKs are signed
-with the **same key**. Otherwise you'd have to uninstall first, which deletes
-your budget data. The workflow caches the key it generates, but GitHub drops
-caches that go unused for 7 days. To make the key permanent, create one and
-store it as a repository secret:
+#### How the signing key is kept
+
+The first build on `main` creates the key and stores it in the repository's
+Actions cache; all later builds (on any branch) reuse it, and a small weekly
+job keeps the cache from expiring. GitHub can still drop it if the repository
+sits completely unused for a couple of months, so for a key that can never
+change, store your own as a repository secret:
 
 ```bash
-keytool -genkeypair -v -keystore debug.keystore -storepass android \
+keytool -genkeypair -v -keystore easybudget.keystore -storepass android \
   -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 \
-  -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-base64 -w0 debug.keystore     # macOS: base64 -i debug.keystore
+  -validity 10000 -dname "CN=EasyBudget,O=EasyBudget,C=US"
+base64 -w0 easybudget.keystore     # macOS: base64 -i easybudget.keystore
 ```
 
 Then on GitHub: **Settings → Secrets and variables → Actions → New repository
 secret**, name it `DEBUG_KEYSTORE_BASE64` and paste the base64 text. Keep
-`debug.keystore` somewhere safe (not in the repo).
+`easybudget.keystore` somewhere safe (not in the repo). Switching to it changes
+the key once, so export your data before installing that build.
 
 ### Option 2 – build on your own computer
 
@@ -90,6 +94,8 @@ pip install --user --upgrade buildozer
 cd android
 buildozer android debug            # APK ends up in android/bin/
 buildozer android debug deploy run # or: install straight onto a USB-connected phone
+# (CI builds use `buildozer android release` with a fixed signing key instead,
+#  see .github/workflows/android-apk.yml)
 ```
 
 ## Try it on your computer first
