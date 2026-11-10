@@ -1,22 +1,24 @@
 # easybudget/dialogs.py
 #
-# Bottom sheets used across the app: choice lists, a date picker built on the
-# same calendar as the home screen, an amount entry sheet with a keypad, and
-# confirmations for destructive actions.
+# Bottom sheets used across the app: choice lists and menus, a date picker
+# built on the same calendar as the home screen, an amount entry sheet with a
+# keypad, a text entry sheet, and confirmations for destructive actions.
 
 import calendar
 from datetime import date, timedelta
 
 from kivy.app import App
+from kivy.clock import Clock
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.widget import Widget
 
+from kivy.factory import Factory
+
 from .widgets import (
-    BottomSheet, IconButton, Keypad, MonthGrid, PrimaryButton, SheetRow, Text,
+    BottomSheet, Field, IconButton, Keypad, MonthGrid, PrimaryButton, SheetRow, Text,
     TextButton, apply_key, pretty_amount,
 )
-from kivy.factory import Factory
 
 
 def _buttons_row(*widgets):
@@ -43,6 +45,68 @@ def choice_sheet(title, choices, on_choose, subtitle="", current=None):
         row.bind(on_release=_pick)
         sheet.body.add_widget(row)
     sheet.open()
+    return sheet
+
+
+def menu_sheet(title, items, subtitle=""):
+    """
+    items: list of dicts with keys text, icon, callback and optionally
+    secondary (second line), checked (tick mark) and danger (red).
+    """
+    sheet = BottomSheet(title=title, subtitle=subtitle)
+    for item in items:
+        row = SheetRow(text=item["text"], icon=item.get("icon", ""),
+                       secondary=item.get("secondary", ""),
+                       checked=item.get("checked", False), danger=item.get("danger", False))
+
+        def _run(_row, cb=item["callback"]):
+            sheet.dismiss()
+            cb()
+
+        row.bind(on_release=_run)
+        sheet.body.add_widget(row)
+    sheet.open()
+    return sheet
+
+
+def text_sheet(title, subtitle, initial, hint, save_text, on_save, icon="text-short"):
+    """
+    Ask for a short piece of text (e.g. a profile name). Shown near the top of
+    the screen so the keyboard never covers it. on_save(text) returns an error
+    message to show, or None when the text was accepted.
+    """
+    app = App.get_running_app()
+    sheet = BottomSheet(title=title, subtitle=subtitle, floating=True)
+    field = Field(hint=hint, text=initial, icon=icon, height=dp(64))
+    field.remove_widget(field.children[-1])          # no label above the box
+    error = Text(color=app.pal.negative, font_size="13sp", size_hint_y=None, height=0,
+                 padding=(dp(4), 0))
+    cancel = TextButton(text="Cancel", muted=True)
+    save = PrimaryButton(text=save_text, icon="check")
+
+    def _save(*_):
+        message = on_save(field.text)
+        if message:
+            error.text = message
+            error.height = dp(24)
+        else:
+            field.ids.input.focus = False
+            sheet.dismiss()
+
+    cancel.bind(on_release=lambda *_: sheet.dismiss())
+    save.bind(on_release=_save)
+    field.ids.input.bind(on_text_validate=_save)
+
+    def _clear_error(*_):
+        error.text = ""
+        error.height = 0
+
+    field.ids.input.bind(text=_clear_error)
+    for w in (field, error, _buttons_row(cancel, save)):
+        sheet.body.add_widget(w)
+    sheet.bind(on_dismiss=lambda *_: setattr(field.ids.input, "focus", False))
+    sheet.open()
+    Clock.schedule_once(lambda *_: setattr(field.ids.input, "focus", True), 0.3)
     return sheet
 
 

@@ -114,7 +114,10 @@ class PickerRow(ButtonBehavior, BoxLayout):
 # ---------------------------------------------------------------------------
 # Gradient balance card
 # ---------------------------------------------------------------------------
-def diagonal_gradient(top_left, bottom_right, size=32) -> Texture:
+GRADIENT_SIZE = 32
+
+
+def diagonal_gradient_bytes(top_left, bottom_right, size=GRADIENT_SIZE) -> bytes:
     buf = bytearray()
     last = size - 1
     for y in range(size):            # texture rows go bottom -> top
@@ -123,12 +126,7 @@ def diagonal_gradient(top_left, bottom_right, size=32) -> Texture:
             for i in range(4):
                 c = top_left[i] + (bottom_right[i] - top_left[i]) * t
                 buf.append(int(max(0, min(1, c)) * 255))
-    tex = Texture.create(size=(size, size), colorfmt="rgba")
-    tex.blit_buffer(bytes(buf), colorfmt="rgba", bufferfmt="ubyte")
-    tex.mag_filter = "linear"
-    tex.min_filter = "linear"
-    tex.wrap = "clamp_to_edge"
-    return tex
+    return bytes(buf)
 
 
 class GradientCard(BoxLayout):
@@ -149,7 +147,19 @@ class GradientCard(BoxLayout):
         self._trigger()
 
     def _rebuild(self, *_):
-        self.texture = diagonal_gradient(self.color_a, self.color_b)
+        self._pixels = diagonal_gradient_bytes(self.color_a, self.color_b)
+        tex = Texture.create(size=(GRADIENT_SIZE, GRADIENT_SIZE), colorfmt="rgba")
+        tex.mag_filter = "linear"
+        tex.min_filter = "linear"
+        tex.wrap = "clamp_to_edge"
+        self._upload(tex)
+        # If the graphics context is ever rebuilt, upload the pixels again
+        # (otherwise the card would come back blank).
+        tex.add_reload_observer(self._upload)
+        self.texture = tex
+
+    def _upload(self, tex):
+        tex.blit_buffer(self._pixels, colorfmt="rgba", bufferfmt="ubyte")
 
 
 # ---------------------------------------------------------------------------
@@ -400,7 +410,7 @@ class SpeedDial(FloatLayout):
 # Bottom sheet (actions, choices, date picker, amount entry, confirmations)
 # ---------------------------------------------------------------------------
 class SheetCard(BoxLayout):
-    pass
+    floating = BooleanProperty(False)
 
 
 class BottomSheet(ModalView):
@@ -411,6 +421,8 @@ class BottomSheet(ModalView):
 
     title = StringProperty("")
     subtitle = StringProperty("")
+    floating = BooleanProperty(False)   # True: a card near the top (for typing,
+                                        # so the keyboard never covers it)
 
     def __init__(self, **kwargs):
         app = App.get_running_app()
@@ -420,7 +432,10 @@ class BottomSheet(ModalView):
         kwargs.setdefault("overlay_color", app.pal.scrim)
         super().__init__(**kwargs)
         self.layer = FloatLayout()
-        self.card = SheetCard()
+        self.card = SheetCard(floating=self.floating)
+        if self.floating:
+            self.card.size_hint_x = None
+            self.layer.bind(width=lambda _l, w: setattr(self.card, "width", w - dp(32)))
         self.layer.add_widget(self.card)
         self.add_widget(self.layer)
         self.body = self.card.ids.body
@@ -432,9 +447,20 @@ class BottomSheet(ModalView):
     def open(self, *args, **kwargs):
         super().open(*args, **kwargs)
         self.card.y = -self.card.height - dp(40)
+        if self.floating:
+            self.card.opacity = 0
         Clock.schedule_once(self._slide_in, 0)
 
+    def _floating_y(self):
+        app = App.get_running_app()
+        return self.layer.top - self.card.height - dp(72) - app.inset_top
+
     def _slide_in(self, *_):
+        if self.floating:
+            self.card.x = dp(16)
+            self.card.y = self._floating_y() + dp(16)
+            Animation(y=self._floating_y(), opacity=1, d=0.2, t="out_cubic").start(self.card)
+            return
         self.card.y = -self.card.height
         Animation(y=0, d=0.24, t="out_cubic").start(self.card)
 
@@ -442,7 +468,10 @@ class BottomSheet(ModalView):
         if getattr(self, "_closing", False):
             return
         self._closing = True
-        anim = Animation(y=-self.card.height - dp(20), d=0.16, t="in_quad")
+        if self.floating:
+            anim = Animation(opacity=0, y=self.card.y + dp(12), d=0.14, t="in_quad")
+        else:
+            anim = Animation(y=-self.card.height - dp(20), d=0.16, t="in_quad")
         anim.bind(on_complete=lambda *_: ModalView.dismiss(self, *args, **kwargs))
         anim.start(self.card)
 

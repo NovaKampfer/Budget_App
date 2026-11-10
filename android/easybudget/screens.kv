@@ -18,6 +18,67 @@
 
 # ====================================================================== HOME
 
+<ProfileButton@ButtonBehavior+BoxLayout>:
+    # App logo + current profile name; tap to switch / add profiles.
+    size_hint: None, None
+    height: dp(52)
+    width: self.minimum_width
+    pos_hint: {"center_y": .5}
+    padding: dp(6), dp(6), dp(10), dp(6)
+    spacing: dp(10)
+    canvas.before:
+        Color:
+            rgba: with_alpha(app.pal.text, 0.08 if self.state == "down" else 0)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(16)]
+    Widget:
+        size_hint: None, None
+        size: dp(38), dp(38)
+        pos_hint: {"center_y": .5}
+        canvas:
+            Color:
+                rgba: app.pal.primary
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [dp(12)]
+        Icon:
+            icon: "wallet-outline"
+            color: app.pal.primary_fg
+            font_size: "21sp"
+            center: self.parent.center
+    BoxLayout:
+        orientation: "vertical"
+        size_hint_x: None
+        width: self.minimum_width
+        AutoText:
+            text: "EasyBudget"
+            font_size: "12sp"
+            color: app.pal.text_muted
+            size_hint_y: None
+            height: dp(16)
+        BoxLayout:
+            size_hint_x: None
+            width: self.minimum_width
+            spacing: dp(2)
+            AutoText:
+                text: app.account_name
+                font_size: "18sp"
+                bold: True
+            Icon:
+                icon: "chevron-down"
+                color: app.pal.text_muted
+                font_size: "20sp"
+                pos_hint: {"center_y": .5}
+
+<MonthTitle@ButtonBehavior+Text>:
+    # Month name in the calendar header; tap to jump back to today.
+    halign: "center"
+    font_size: "17sp"
+    bold: True
+
 <StatChip@BoxLayout>:
     icon: ""
     label: ""
@@ -151,32 +212,10 @@
         padding: 0, app.inset_top, 0, 0
 
         TopBar:
-            padding: dp(20), 0, dp(8), 0
+            padding: dp(12), 0, dp(8), 0
+            ProfileButton:
+                on_release: app.open_profiles()
             Widget:
-                size_hint: None, None
-                size: dp(34), dp(34)
-                pos_hint: {"center_y": .5}
-                canvas:
-                    Color:
-                        rgba: app.pal.primary
-                    RoundedRectangle:
-                        pos: self.pos
-                        size: self.size
-                        radius: [dp(11)]
-                Icon:
-                    icon: "wallet-outline"
-                    color: app.pal.primary_fg
-                    font_size: "19sp"
-                    center: self.parent.center
-            Text:
-                text: "EasyBudget"
-                font_size: "21sp"
-                bold: True
-                padding: dp(8), 0
-            IconButton:
-                icon: "calendar-today"
-                pos_hint: {"center_y": .5}
-                on_release: root.go_today()
             IconButton:
                 icon: "white-balance-sunny" if app.is_dark else "weather-night"
                 pos_hint: {"center_y": .5}
@@ -266,11 +305,9 @@
                             color: app.pal.primary
                             pos_hint: {"center_y": .5}
                             on_release: root.shift_month(-1)
-                        Text:
+                        MonthTitle:
                             id: month_title
-                            halign: "center"
-                            font_size: "17sp"
-                            bold: True
+                            on_release: root.go_today()
                         IconButton:
                             icon: "chevron-right"
                             color: app.pal.primary

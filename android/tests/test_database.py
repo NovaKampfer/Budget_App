@@ -169,5 +169,101 @@ class TestRules(DatabaseTestCase):
         self.assertEqual(len(self.dates_for_rule(1)), 5)
 
 
+
+class TestProfiles(DatabaseTestCase):
+    def test_default_profile_exists(self):
+        accounts = db.list_accounts()
+        self.assertEqual([(a["id"], a["name"]) for a in accounts], [(1, "Personal")])
+        self.assertEqual(db.current_account(), 1)
+
+    def test_profiles_are_isolated(self):
+        db.insert_txn("2026-11-01", 10000, "personal pay")
+        work = db.create_account("Work")
+        db.set_current_account(work)
+        db.insert_txn("2026-11-01", 500, "work thing")
+        rid = db.create_rule("2026-11-01", -100, "daily", 1, "day", "2026-11-05")
+        self.assertEqual(db.balance_on_or_before("2026-11-05"), 500 - 500)
+        self.assertEqual([r["note"] for r in db.list_by_date("2026-11-01")],
+                         ["work thing", "daily"])
+        self.assertEqual(db.period_totals("2026-11-01", "2026-11-30"), (500, -500))
+        db.set_current_account(1)
+        self.assertEqual(db.balance_on_or_before("2026-11-05"), 10000)
+        self.assertEqual(db.daily_balances("2026-11-04", "2026-11-05")["2026-11-05"], 10000)
+        self.assertEqual(db.balance_on_or_before("2026-11-05", account_id=work), 0)
+        # rules keep generating into their own profile even when another is selected
+        db.generate_until(rid, "2026-11-10")
+        self.assertEqual(db.balance_on_or_before("2026-11-10"), 10000)
+        self.assertEqual(db.balance_on_or_before("2026-11-10", account_id=work), 500 - 1000)
+
+    def test_replace_rule_keeps_profile(self):
+        work = db.create_account("Work")
+        db.set_current_account(work)
+        rid = db.create_rule("2026-11-01", -100, "x", 1, "day", "2026-11-10")
+        db.set_current_account(1)
+        new = db.replace_rule_from(rid, "2026-11-05", "2026-11-05", -200, "x", 1, "day",
+                                   "2026-11-10")
+        self.assertEqual(db.get_rule(new)["account_id"], work)
+        self.assertEqual(db.balance_on_or_before("2026-11-10"), 0)
+
+    def test_current_profile_is_remembered(self):
+        work = db.create_account("Work")
+        db.set_current_account(work)
+        path = db.conn().execute("PRAGMA database_list").fetchone()["file"]
+        db.init(path)
+        self.assertEqual(db.current_account(), work)
+
+    def test_names_are_validated(self):
+        db.create_account("Work")
+        for bad in ("", "   ", "work", "x" * 31):
+            with self.assertRaises(ValueError, msg=bad):
+                db.create_account(bad)
+        db.rename_account(1, "  Home   budget ")
+        self.assertEqual(db.get_account(1)["name"], "Home budget")
+        db.rename_account(1, "HOME budget")          # same profile, different case is fine
+
+    def test_delete_profile(self):
+        with self.assertRaises(ValueError):
+            db.delete_account(1)                     # the last one can't go
+        work = db.create_account("Work")
+        db.set_current_account(work)
+        db.insert_txn("2026-11-01", 500, "w")
+        db.create_rule("2026-11-01", -100, "d", 1, "day", "2026-11-05")
+        db.delete_account(work)
+        self.assertEqual(db.current_account(), 1)
+        self.assertIsNone(db.get_account(work))
+        self.assertEqual(db.conn().execute(
+            "SELECT COUNT(*) FROM transactions WHERE account_id=?", (work,)).fetchone()[0], 0)
+        self.assertEqual(db.rules_all(), [])
+
+    def test_migrates_version_1_0_database(self):
+        # Version 1.0 of the Android app had no profiles.
+        db.close()
+        import sqlite3
+        path = os.path.join(self.tmp.name, "v10.db")
+        old = sqlite3.connect(path)
+        old.executescript("""
+            CREATE TABLE transactions(id INTEGER PRIMARY KEY, date TEXT NOT NULL,
+              amount_cents INTEGER NOT NULL, note TEXT DEFAULT '', rule_id INTEGER);
+            CREATE TABLE recurring_rules(id INTEGER PRIMARY KEY, start_date TEXT NOT NULL,
+              amount_cents INTEGER NOT NULL, note TEXT DEFAULT '', every_n INTEGER NOT NULL,
+              unit TEXT NOT NULL, last_generated_date TEXT, end_date TEXT);
+            CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO settings VALUES ('currency', '€');
+            INSERT INTO recurring_rules VALUES (1, '2026-11-01', -2500, 'Life', 1, 'day',
+                                                '2026-11-02', NULL);
+            INSERT INTO transactions VALUES (1, '2026-11-01', -2500, 'Life', 1);
+            INSERT INTO transactions VALUES (2, '2026-11-02', -2500, 'Life', 1);
+            INSERT INTO transactions VALUES (3, '2026-11-02', 30000, 'Pay', NULL);
+        """)
+        old.commit()
+        old.close()
+        db.init(path)
+        self.assertEqual(db.get_setting("currency"), "€")
+        self.assertEqual([a["name"] for a in db.list_accounts()], ["Personal"])
+        self.assertEqual(db.balance_on_or_before("2026-11-02"), 25000)
+        db.generate_until(1, "2026-11-04")
+        self.assertEqual(db.balance_on_or_before("2026-11-04"), 20000)
+
+
 if __name__ == "__main__":
     unittest.main()

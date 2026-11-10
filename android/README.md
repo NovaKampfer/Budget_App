@@ -11,9 +11,13 @@ A clean, **ad-free**, fully **offline** budget tracker for your phone, with a
 
 - **Balance card** – the balance of the selected day, plus this month's income
   and expenses, with a warning when you dip below your threshold or below zero.
+- **Profiles** – keep separate budgets (e.g. Personal, Work, Savings), each
+  with its own transactions and balance. Tap the profile name in the top bar
+  to switch, add, rename or delete profiles.
 - **Calendar** – every day shows its ending balance, colored
   green / orange (below your warning) / red (negative).
-  Swipe left/right or use the arrows to change month.
+  Swipe left/right or use the arrows to change month; tap the month name to
+  jump back to today.
 - **Expenses & income** – one-off or recurring: every day, week, 2/3/4 weeks,
   month, 2/3/6 months or year.
 - **Edit or delete** a single occurrence, *this and all future* occurrences,

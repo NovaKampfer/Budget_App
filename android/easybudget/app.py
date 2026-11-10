@@ -16,13 +16,15 @@ from kivymd.app import MDApp
 
 from . import database as db
 from .android_utils import IS_ANDROID, set_system_bars, system_bar_overlap, system_prefers_dark
-from .dialogs import AmountSheet, action_sheet, choice_sheet, confirm_sheet
+from .dialogs import (
+    AmountSheet, action_sheet, choice_sheet, confirm_sheet, menu_sheet, text_sheet,
+)
 from .formatting import CURRENCIES, format_money, interval_label
 from .screens import EditScreen, HomeScreen, SettingsScreen, month_bounds, short_date
 from .theme import Palette, palette_values
 from .widgets import Toast
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 KV_DIR = Path(__file__).parent
 AHEAD_MONTHS = 13      # recurring entries are generated this far past the visible month
@@ -38,12 +40,14 @@ class EasyBudgetApp(MDApp):
     week_start = StringProperty("sunday")
     theme_mode = StringProperty("system")
     version_name = StringProperty(__version__)
+    account_name = StringProperty("")   # current profile, shortened for the top bar
 
     # ------------------------------------------------------------------ startup
     def build(self):
         self.title = "EasyBudget"
         db.init(Path(self.user_data_dir) / "easybudget.db")
         self._load_settings()
+        self._update_account_name()
 
         self.is_dark = self._wants_dark()
         self.pal = Palette(dark=self.is_dark)
@@ -79,6 +83,13 @@ class EasyBudgetApp(MDApp):
         return True   # keep running in the background instead of restarting
 
     def on_resume(self):
+        # Android/SDL calls this *before* it re-attaches the app's OpenGL
+        # context. Creating widgets here (the refresh below builds new cards)
+        # would touch the GPU without a context and crash the app, so do the
+        # work on the next frame instead, when drawing works again.
+        Clock.schedule_once(self._after_resume, 0.1)
+
+    def _after_resume(self, *_):
         self._update_insets()
         self._follow_system_theme()
         if date.today() != self._last_seen_day:      # the app was resumed on a new day
@@ -255,6 +266,83 @@ class EasyBudgetApp(MDApp):
         confirm_sheet("Delete the whole series?",
                       f"Every occurrence of “{title}”, past and future, is removed.",
                       "Delete all", _do)
+
+    # ------------------------------------------------------------------ profiles
+    def _update_account_name(self):
+        name = db.get_account(db.current_account())["name"]
+        self.account_name = name if len(name) <= 18 else name[:17].rstrip() + "\u2026"
+
+    def open_profiles(self, *_):
+        self.home.ids.dial.close()
+        today = date.today().isoformat()
+        current = db.current_account()
+        accounts = db.list_accounts()
+        items = []
+        for a in accounts:
+            balance = db.balance_on_or_before(today, account_id=a["id"])
+            items.append(dict(
+                text=a["name"], icon="wallet-outline", checked=a["id"] == current,
+                secondary=f"Balance today: {format_money(balance, self.currency)}",
+                callback=lambda account_id=a["id"]: self.switch_profile(account_id)))
+        name = db.get_account(current)["name"]
+        items.append(dict(text="Add a profile", icon="plus", callback=self.add_profile))
+        items.append(dict(text=f"Rename \u201c{name}\u201d", icon="pencil-outline",
+                          callback=self.rename_profile))
+        if len(accounts) > 1:
+            items.append(dict(text=f"Delete \u201c{name}\u201d", icon="delete-outline",
+                              danger=True, callback=self.confirm_delete_profile))
+        menu_sheet("Profiles", items,
+                   subtitle="Each profile has its own transactions and balance.")
+
+    def switch_profile(self, account_id: int, announce=True):
+        db.set_current_account(account_id)
+        self._update_account_name()
+        self.home.refresh()
+        if announce:
+            Toast.show(f"Switched to {db.get_account(account_id)['name']}",
+                       icon="swap-horizontal")
+
+    def add_profile(self):
+        def _save(name):
+            try:
+                account_id = db.create_account(name)
+            except ValueError as exc:
+                return str(exc)
+            self.switch_profile(account_id, announce=False)
+            Toast.show(f"Profile \u201c{db.get_account(account_id)['name']}\u201d created")
+            return None
+
+        text_sheet("New profile", "For example Work, Savings or a trip budget.", "",
+                   "Profile name", "Create", _save, icon="wallet-outline")
+
+    def rename_profile(self):
+        current = db.current_account()
+
+        def _save(name):
+            try:
+                db.rename_account(current, name)
+            except ValueError as exc:
+                return str(exc)
+            self._update_account_name()
+            Toast.show("Profile renamed")
+            return None
+
+        text_sheet("Rename profile", "", db.get_account(current)["name"], "Profile name",
+                   "Save", _save, icon="wallet-outline")
+
+    def confirm_delete_profile(self):
+        current = db.current_account()
+        name = db.get_account(current)["name"]
+
+        def _do():
+            db.delete_account(current)
+            self._update_account_name()
+            self.home.refresh()
+            Toast.show(f"Deleted \u201c{name}\u201d", icon="delete-outline")
+
+        confirm_sheet(f"Delete \u201c{name}\u201d?",
+                      "All of its transactions and recurring entries are deleted. "
+                      "This can't be undone.", "Delete profile", _do)
 
     # ------------------------------------------------------------------ settings actions
     def open_adjust_balance(self, *_):

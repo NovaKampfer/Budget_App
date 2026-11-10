@@ -41,16 +41,22 @@
             size: self.size
 
 <Card>:
+    # A soft shadow drawn from two plain shapes. (Kivy's BoxShadow creates an
+    # offscreen GPU buffer per card, which is slow for list items and crashes
+    # if a card is created while Android has the GPU context detached.)
     canvas.before:
         Color:
-            rgba: app.pal.shadow if self.shadow else (0, 0, 0, 0)
-        BoxShadow:
-            pos: self.pos
+            rgba: with_alpha(app.pal.shadow, app.pal.shadow[3] * 0.45) if self.shadow else (0, 0, 0, 0)
+        RoundedRectangle:
+            pos: self.x - dp(0.5), self.y - dp(2.5)
+            size: self.width + dp(1), self.height + dp(1)
+            radius: [self.radius + dp(1)]
+        Color:
+            rgba: with_alpha(app.pal.shadow, app.pal.shadow[3] * 0.6) if self.shadow else (0, 0, 0, 0)
+        RoundedRectangle:
+            pos: self.x, self.y - dp(1)
             size: self.size
-            offset: 0, -dp(2)
-            blur_radius: dp(18)
-            spread_radius: -dp(3), -dp(3)
-            border_radius: [self.radius] * 4
+            radius: [self.radius]
         Color:
             rgba: self.bg or app.pal.surface
         RoundedRectangle:
@@ -522,7 +528,7 @@
     orientation: "vertical"
     size_hint: 1, None
     height: self.minimum_height
-    padding: dp(20), dp(8), dp(20), dp(20) + app.inset_bottom
+    padding: dp(20), dp(8), dp(20), dp(20) + (0 if self.floating else app.inset_bottom)
     spacing: dp(4)
     canvas.before:
         Color:
@@ -530,13 +536,13 @@
         RoundedRectangle:
             pos: self.pos
             size: self.size
-            radius: [dp(28), dp(28), 0, 0]
+            radius: [dp(28), dp(28), dp(28) if self.floating else 0, dp(28) if self.floating else 0]
     Widget:
         size_hint_y: None
-        height: dp(16)
+        height: dp(8) if root.floating else dp(16)
         canvas:
             Color:
-                rgba: app.pal.outline
+                rgba: (0, 0, 0, 0) if root.floating else app.pal.outline
             RoundedRectangle:
                 pos: self.center_x - dp(18), self.center_y - dp(2)
                 size: dp(36), dp(4)
