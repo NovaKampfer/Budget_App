@@ -1,5 +1,19 @@
-__phcache__/
+# Python
+__pycache__/
 *.pyc
-.DS_Store
 .venv/
+venv/
+
+# OS
+.DS_Store
+
+# Local databases
 *.sqlite3
+*.db
+
+# Android build output (Buildozer)
+android/.buildozer/
+android/bin/
+*.apk
+*.aab
+*.keystore

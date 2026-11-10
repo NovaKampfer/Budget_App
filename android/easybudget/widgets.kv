@@ -1,0 +1,636 @@
+#:import dp kivy.metrics.dp
+#:import Window kivy.core.window.Window
+#:import with_alpha easybudget.theme.with_alpha
+
+# ---------------------------------------------------------------- basics
+
+<Text>:
+    color: app.pal.text
+    font_name: "Roboto"
+    font_size: "14sp"
+    halign: "left"
+    valign: "middle"
+    text_size: self.size
+    shorten: True
+    shorten_from: "right"
+
+<AutoText>:
+    color: app.pal.text
+    font_name: "Roboto"
+    font_size: "14sp"
+    size_hint_x: None
+    width: self.texture_size[0]
+
+<Icon>:
+    font_name: "Icons"
+    font_size: "22sp"
+    color: app.pal.text
+    size_hint: None, None
+    size: dp(24), dp(24)
+    halign: "center"
+    valign: "middle"
+    text_size: self.size
+
+<IconButton>:
+    size: dp(44), dp(44)
+    canvas.before:
+        Color:
+            rgba: with_alpha(app.pal.text, 0.10 if self.state == "down" else 0)
+        Ellipse:
+            pos: self.pos
+            size: self.size
+
+<Card>:
+    canvas.before:
+        Color:
+            rgba: app.pal.shadow if self.shadow else (0, 0, 0, 0)
+        BoxShadow:
+            pos: self.pos
+            size: self.size
+            offset: 0, -dp(2)
+            blur_radius: dp(18)
+            spread_radius: -dp(3), -dp(3)
+            border_radius: [self.radius] * 4
+        Color:
+            rgba: self.bg or app.pal.surface
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [self.radius]
+
+<TapCard>:
+    canvas.after:
+        Color:
+            rgba: with_alpha(app.pal.text, 0.06 if self.state == "down" else 0)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [self.radius]
+
+<Pill>:
+    size_hint: None, None
+    height: dp(32)
+    width: self.minimum_width
+    padding: dp(10), 0, dp(12), 0
+    spacing: dp(6)
+    canvas.before:
+        Color:
+            rgba: self.bg
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [self.height / 2]
+        Color:
+            rgba: with_alpha(self.fg, 0.12 if self.state == "down" else 0)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [self.height / 2]
+    Icon:
+        icon: root.icon
+        color: root.fg
+        font_size: "16sp"
+        size: (dp(18), dp(32)) if root.icon else (0, dp(32))
+    AutoText:
+        text: root.text
+        color: root.fg
+        font_size: "13sp"
+        bold: True
+
+<PrimaryButton>:
+    size_hint_y: None
+    height: dp(54)
+    padding: dp(20), 0
+    spacing: dp(8)
+    canvas.before:
+        Color:
+            rgba: self.bg or app.pal.primary
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(18)]
+        Color:
+            rgba: with_alpha(self.fg or app.pal.primary_fg, 0.16 if self.state == "down" else 0)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(18)]
+    Widget:
+    Icon:
+        icon: root.icon
+        color: root.fg or app.pal.primary_fg
+        pos_hint: {"center_y": .5}
+        width: dp(24) if root.icon else 0
+    AutoText:
+        text: root.text
+        color: root.fg or app.pal.primary_fg
+        font_size: "16sp"
+        bold: True
+    Widget:
+
+<TextButton>:
+    color: app.pal.text_muted if self.muted else app.pal.primary
+    font_name: "Roboto"
+    bold: True
+    font_size: "15sp"
+    size_hint: None, None
+    size: self.texture_size[0] + dp(32), dp(48)
+    canvas.before:
+        Color:
+            rgba: with_alpha(self.color, 0.12 if self.state == "down" else 0)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(16)]
+
+<Fab>:
+    angle: 0
+    size_hint: None, None
+    size: dp(60), dp(60)
+    canvas.before:
+        Color:
+            rgba: 0, 0, 0, 0.25
+        BoxShadow:
+            pos: self.pos
+            size: self.size
+            offset: 0, -dp(3)
+            blur_radius: dp(16)
+            border_radius: [dp(20)] * 4
+        Color:
+            rgba: app.pal.primary
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(20)]
+        Color:
+            rgba: with_alpha(app.pal.primary_fg, 0.16 if self.state == "down" else 0)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(20)]
+    Icon:
+        icon: root.icon
+        color: app.pal.primary_fg
+        font_size: "30sp"
+        size_hint: 1, 1
+        canvas.before:
+            PushMatrix
+            Rotate:
+                angle: -root.angle
+                origin: self.center
+        canvas.after:
+            PopMatrix
+
+# ---------------------------------------------------------------- form fields
+
+<Field>:
+    orientation: "vertical"
+    size_hint_y: None
+    height: dp(86)
+    spacing: dp(6)
+    Text:
+        text: root.label
+        color: app.pal.text_muted
+        font_size: "13sp"
+        size_hint_y: None
+        height: dp(18)
+        padding: dp(4), 0
+    BoxLayout:
+        padding: dp(14), 0
+        spacing: dp(10)
+        canvas.before:
+            Color:
+                rgba: app.pal.surface
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [dp(18)]
+            Color:
+                rgba: app.pal.primary if root.focused else app.pal.outline
+            Line:
+                rounded_rectangle: (self.x, self.y, self.width, self.height, dp(18))
+                width: dp(1.6) if root.focused else dp(1)
+        Icon:
+            icon: root.icon
+            color: app.pal.primary if root.focused else app.pal.text_muted
+            pos_hint: {"center_y": .5}
+            width: dp(24) if root.icon else 0
+        FieldInput:
+            id: input
+            hint_text: root.hint
+            text: root.text
+            on_text: root.text = self.text
+            on_focus: root.focused = self.focus
+
+<FieldInput>:
+    background_normal: ""
+    background_active: ""
+    background_color: 0, 0, 0, 0
+    foreground_color: app.pal.text
+    hint_text_color: app.pal.text_muted
+    cursor_color: app.pal.primary
+    selection_color: with_alpha(app.pal.primary, 0.3)
+    font_name: "Roboto"
+    font_size: "16sp"
+    multiline: False
+    write_tab: False
+    padding: 0, (self.height - self.line_height) / 2
+
+<PickerRow>:
+    size_hint_y: None
+    height: dp(64)
+    padding: dp(14), 0, dp(10), 0
+    spacing: dp(14)
+    canvas.before:
+        Color:
+            rgba: app.pal.surface
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(18)]
+        Color:
+            rgba: app.pal.outline
+        Line:
+            rounded_rectangle: (self.x, self.y, self.width, self.height, dp(18))
+            width: dp(1)
+        Color:
+            rgba: with_alpha(app.pal.text, 0.06 if self.state == "down" else 0)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(18)]
+    Widget:
+        size_hint: None, None
+        size: dp(38), dp(38)
+        pos_hint: {"center_y": .5}
+        canvas:
+            Color:
+                rgba: app.pal.primary_soft
+            Ellipse:
+                pos: self.pos
+                size: self.size
+        Icon:
+            icon: root.icon
+            color: app.pal.primary
+            font_size: "20sp"
+            center: self.parent.center
+    BoxLayout:
+        orientation: "vertical"
+        padding: 0, dp(12)
+        Text:
+            text: root.label
+            color: app.pal.text_muted
+            font_size: "12sp"
+        Text:
+            text: root.value
+            font_size: "16sp"
+            bold: True
+    Icon:
+        icon: "chevron-right"
+        color: app.pal.text_muted
+        pos_hint: {"center_y": .5}
+
+# ---------------------------------------------------------------- balance card
+
+<GradientCard>:
+    canvas.before:
+        Color:
+            rgba: with_alpha(app.pal.hero_bottom, 0.35 if app.pal.shadow[3] > 0 else 0)
+        BoxShadow:
+            pos: self.pos
+            size: self.size
+            offset: 0, -dp(6)
+            blur_radius: dp(24)
+            spread_radius: -dp(6), -dp(6)
+            border_radius: [self.radius] * 4
+        StencilPush
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [self.radius]
+        StencilUse
+        Color:
+            rgba: 1, 1, 1, 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
+            texture: self.texture
+        Color:
+            rgba: 1, 1, 1, 0.07
+        Ellipse:
+            pos: self.right - dp(150), self.top - dp(130)
+            size: dp(250), dp(250)
+        Color:
+            rgba: 1, 1, 1, 0.05
+        Ellipse:
+            pos: self.right - dp(70), self.y - dp(90)
+            size: dp(170), dp(170)
+        StencilUnUse
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [self.radius]
+        StencilPop
+
+# ---------------------------------------------------------------- segmented control
+
+<Segmented>:
+    size_hint_y: None
+    height: dp(50)
+    padding: dp(4)
+    spacing: dp(4)
+    canvas.before:
+        Color:
+            rgba: app.pal.surface_alt
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(18)]
+
+<SegmentButton>:
+    padding: dp(8), 0
+    spacing: dp(6)
+    canvas.before:
+        Color:
+            rgba: self.active_color if self.active else (0, 0, 0, 0)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(14)]
+        Color:
+            rgba: with_alpha(app.pal.text, 0.07 if self.state == "down" and not self.active else 0)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(14)]
+    Widget:
+    Icon:
+        icon: root.icon
+        color: app.pal.primary_fg if root.active else app.pal.text_muted
+        font_size: "18sp"
+        size: (dp(20), dp(20)) if root.icon else (0, 0)
+        pos_hint: {"center_y": .5}
+    AutoText:
+        text: root.text
+        bold: True
+        font_size: "15sp"
+        color: app.pal.primary_fg if root.active else app.pal.text_muted
+    Widget:
+
+# ---------------------------------------------------------------- calendar
+
+<DayCell>:
+    orientation: "vertical"
+    padding: 0, dp(7)
+    opacity: 1 if self.in_month else 0.32
+    canvas.before:
+        Color:
+            rgba: app.pal.primary_soft if self.selected else (0, 0, 0, 0)
+        RoundedRectangle:
+            pos: self.x + dp(2), self.y + dp(2)
+            size: self.width - dp(4), self.height - dp(4)
+            radius: [dp(14)]
+        Color:
+            rgba: app.pal.primary if self.selected else (with_alpha(app.pal.primary, 0.45) if self.is_today else (0, 0, 0, 0))
+        Line:
+            rounded_rectangle: (self.x + dp(2), self.y + dp(2), self.width - dp(4), self.height - dp(4), dp(14))
+            width: dp(1.5) if self.selected else dp(1.1)
+    Text:
+        text: root.day
+        halign: "center"
+        valign: "bottom" if root.amount else "middle"
+        font_size: "15sp"
+        bold: root.selected or root.is_today
+        color: app.pal.primary if root.is_today else app.pal.text
+        shorten: False
+    Text:
+        text: root.amount
+        halign: "center"
+        valign: "top"
+        font_size: "11sp"
+        bold: True
+        color: app.pal.negative if root.status == "neg" else (app.pal.warning if root.status == "low" else app.pal.positive)
+        shorten: False
+        size_hint_y: None
+        height: dp(18) if root.amount else 0
+
+<MonthGrid>:
+    cols: 7
+    size_hint_y: None
+    row_force_default: True
+    row_default_height: dp(54)
+    height: dp(54) * 6
+
+<WeekdayLabel@Text>:
+    halign: "center"
+    font_size: "12sp"
+    color: app.pal.text_muted
+    shorten: False
+
+# ---------------------------------------------------------------- keypad
+
+<KeyButton>:
+    markup: True
+    font_name: "Roboto"
+    font_size: "24sp"
+    color: app.pal.text
+    canvas.before:
+        Color:
+            rgba: app.pal.primary_soft if self.state == "down" else (app.pal.surface_alt if self.alt else app.pal.surface)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(16)]
+
+<Keypad>:
+    cols: 3
+    spacing: dp(8)
+    size_hint_y: None
+    row_force_default: True
+    row_default_height: dp(52)
+    height: dp(52) * 4 + dp(8) * 3
+
+# ---------------------------------------------------------------- speed dial
+
+<DialOption>:
+    size_hint: None, None
+    height: dp(50)
+    width: self.minimum_width
+    padding: dp(16), 0, dp(22), 0
+    spacing: dp(10)
+    canvas.before:
+        Color:
+            rgba: 0, 0, 0, 0.18
+        BoxShadow:
+            pos: self.pos
+            size: self.size
+            offset: 0, -dp(2)
+            blur_radius: dp(12)
+            border_radius: [dp(25)] * 4
+        Color:
+            rgba: app.pal.surface
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(25)]
+        Color:
+            rgba: with_alpha(app.pal.text, 0.07 if self.state == "down" else 0)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(25)]
+    Icon:
+        icon: root.icon
+        color: app.pal.primary
+        pos_hint: {"center_y": .5}
+    AutoText:
+        text: root.text
+        bold: True
+        font_size: "15sp"
+
+<SpeedDial>:
+    canvas.before:
+        Color:
+            rgba: with_alpha(app.pal.scrim, app.pal.scrim[3] * self.progress)
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    DialOption:
+        icon: "repeat"
+        text: "Add recurring"
+        right: fab.right
+        y: fab.top + dp(84) + (1 - root.progress) * dp(18)
+        opacity: root.progress
+        on_release: root.choose("on_add_recurring")
+    DialOption:
+        icon: "plus"
+        text: "Add expense / income"
+        right: fab.right
+        y: fab.top + dp(20) + (1 - root.progress) * dp(10)
+        opacity: root.progress
+        on_release: root.choose("on_add")
+    Fab:
+        id: fab
+        angle: root.progress * 45
+        right: root.right - dp(20)
+        y: root.y + dp(24) + app.inset_bottom
+        on_release: root.toggle()
+
+# ---------------------------------------------------------------- bottom sheet
+
+<SheetCard>:
+    orientation: "vertical"
+    size_hint: 1, None
+    height: self.minimum_height
+    padding: dp(20), dp(8), dp(20), dp(20) + app.inset_bottom
+    spacing: dp(4)
+    canvas.before:
+        Color:
+            rgba: app.pal.surface
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(28), dp(28), 0, 0]
+    Widget:
+        size_hint_y: None
+        height: dp(16)
+        canvas:
+            Color:
+                rgba: app.pal.outline
+            RoundedRectangle:
+                pos: self.center_x - dp(18), self.center_y - dp(2)
+                size: dp(36), dp(4)
+                radius: [dp(2)]
+    Text:
+        id: title
+        font_size: "19sp"
+        bold: True
+        size_hint_y: None
+        height: dp(32) if self.text else 0
+        padding: dp(4), 0
+    Text:
+        id: subtitle
+        color: app.pal.text_muted
+        size_hint_y: None
+        height: dp(22) if self.text else 0
+        padding: dp(4), 0
+    ScrollView:
+        id: scroll
+        size_hint_y: None
+        height: min(body.height, Window.height * 0.72)
+        do_scroll_x: False
+        bar_width: 0
+        BoxLayout:
+            id: body
+            orientation: "vertical"
+            size_hint_y: None
+            height: self.minimum_height
+            padding: 0, dp(10), 0, 0
+            spacing: dp(4)
+
+<SheetRow>:
+    size_hint_y: None
+    height: dp(58) if self.secondary else dp(54)
+    padding: dp(12), 0
+    spacing: dp(16)
+    canvas.before:
+        Color:
+            rgba: with_alpha(app.pal.text, 0.07) if self.state == "down" else (app.pal.primary_soft if self.checked else (0, 0, 0, 0))
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(16)]
+    Icon:
+        icon: root.icon
+        color: app.pal.negative if root.danger else (app.pal.primary if root.checked else app.pal.text_muted)
+        pos_hint: {"center_y": .5}
+        width: dp(24) if root.icon else 0
+    BoxLayout:
+        orientation: "vertical"
+        padding: 0, dp(8) if root.secondary else 0
+        Text:
+            text: root.text
+            font_size: "16sp"
+            bold: root.checked
+            color: app.pal.negative if root.danger else app.pal.text
+        Text:
+            text: root.secondary
+            font_size: "12sp"
+            color: app.pal.text_muted
+            size_hint_y: None
+            height: dp(18) if root.secondary else 0
+    Icon:
+        icon: "check" if root.checked else ""
+        color: app.pal.primary
+        pos_hint: {"center_y": .5}
+
+<SheetButtons@BoxLayout>:
+    size_hint_y: None
+    height: dp(64)
+    padding: 0, dp(12), 0, 0
+    spacing: dp(12)
+
+# ---------------------------------------------------------------- toast
+
+<Toast>:
+    size_hint: None, None
+    height: dp(48)
+    width: min(self.minimum_width, Window.width - dp(32))
+    center_x: Window.width / 2
+    padding: dp(14), 0, dp(20), 0
+    spacing: dp(10)
+    canvas.before:
+        Color:
+            rgba: app.pal.text
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(24)]
+    Icon:
+        icon: root.icon
+        color: app.pal.bg
+        pos_hint: {"center_y": .5}
+    AutoText:
+        text: root.text
+        color: app.pal.bg
+        font_size: "14sp"

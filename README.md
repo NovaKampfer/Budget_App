@@ -1,59 +1,23 @@
-# EasyBudget Desktop (Offline)
+# EasyBudget
 
-EasyBudget is a simple **offline personal budget tracker** built with **Python**, **Kivy**, and **KivyMD**.  
-It helps you track transactions, visualize balances on a monthly calendar, and set up **recurring income/expenses** without relying on the cloud.
+A simple, **offline**, **ad-free** personal budget tracker. See your balance
+for every day on a calendar, and plan ahead with recurring income and expenses.
 
----
+This repository contains two separate apps:
 
-## ✨ Features
+| Folder | App | Built with |
+| --- | --- | --- |
+| [`android/`](android) | **Android phone app** – redesigned UI with light & dark mode | Python · Kivy · KivyMD · Buildozer |
+| [`windows/`](windows) | **Windows desktop app** – the original version | Python · Kivy · KivyMD |
 
-- 📅 **Calendar view**: See daily ending balances in a monthly grid, aligned Mon–Sun.
-- ➕ **Add transactions**: Positive for income, negative for expenses.
-- ⟳ **Recurring transactions**:
-  - Supports every _N_ days, weeks, or months.
-  - Generated automatically up to 12 months ahead.
-  - Marked with a **⟲** symbol in the transaction list.
-- 🖊 **Edit/Delete**:
-  - Update or delete one-off transactions.
-  - Delete only a single recurring occurrence, or the entire series.
-- ✅ **Offline-first**:
-  - Stores data in a local SQLite database at  
-    `C:\Users\<you>\.easybudget_desktop\easybudget.db`.
-- 🎨 **Material Design** look and feel.
+![Android app in light and dark mode](docs/android-preview.jpg)
 
----
+## Quick start
 
-## 📂 Project Structure
+- **Android:** download the APK from the latest *Android APK* run in the
+  repository's **Actions** tab, or build it yourself – see
+  [android/README.md](android/README.md).
+- **Windows:** double-click `windows/run.bat` – see
+  [windows/README.md](windows/README.md).
 
-Budget_app/
-
-├── db/
-
-│ └── database.py # SQLite database layer
-
-
-├── main.py # Application entry point (UI + logic)
-
-├── requirements.txt # Python dependencies
-
-├── run.bat # One-click launcher for Windows
-
-└── README.md # This file
-
-
-
-
-
-
----
-
-## 🚀 Getting Started
-
-### 1. Install Python
-Make sure you have **Python 3.10+** installed.  
-Download from [python.org](https://www.python.org/downloads/).
-
-### 2. Clone or download this repo
-```bash
-git clone https://github.com/NovaKampfer/Budget_App.git
-cd Budget_App
+Both apps store everything locally in SQLite. Nothing is sent anywhere.

@@ -1,0 +1,608 @@
+#:import dp kivy.metrics.dp
+#:import with_alpha easybudget.theme.with_alpha
+
+<TopBar@BoxLayout>:
+    size_hint_y: None
+    height: dp(64)
+    padding: dp(8), 0
+    spacing: dp(4)
+
+<SectionLabel@Text>:
+    size_hint_y: None
+    height: dp(36)
+    font_size: "13sp"
+    bold: True
+    color: app.pal.primary
+    valign: "bottom"
+    padding: dp(6), dp(4)
+
+# ====================================================================== HOME
+
+<StatChip@BoxLayout>:
+    icon: ""
+    label: ""
+    value: ""
+    padding: dp(10), dp(6)
+    spacing: dp(8)
+    canvas.before:
+        Color:
+            rgba: with_alpha(app.pal.hero_fg, 0.14)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(16)]
+    Widget:
+        size_hint: None, None
+        size: dp(30), dp(30)
+        pos_hint: {"center_y": .5}
+        canvas:
+            Color:
+                rgba: with_alpha(app.pal.hero_fg, 0.18)
+            Ellipse:
+                pos: self.pos
+                size: self.size
+        Icon:
+            icon: root.icon
+            color: app.pal.hero_fg
+            font_size: "17sp"
+            center: self.parent.center
+    BoxLayout:
+        orientation: "vertical"
+        Text:
+            text: root.label
+            font_size: "11sp"
+            color: with_alpha(app.pal.hero_fg, 0.78)
+        Text:
+            text: root.value
+            font_size: "14sp"
+            bold: True
+            color: app.pal.hero_fg
+
+<TxnItem>:
+    size_hint_y: None
+    height: dp(72)
+    padding: dp(14), 0, dp(18), 0
+    spacing: dp(14)
+    radius: dp(20)
+    Widget:
+        size_hint: None, None
+        size: dp(42), dp(42)
+        pos_hint: {"center_y": .5}
+        canvas:
+            Color:
+                rgba: with_alpha(app.pal.positive if root.is_income else app.pal.negative, 0.15)
+            Ellipse:
+                pos: self.pos
+                size: self.size
+        Icon:
+            icon: "plus" if root.is_income else "minus"
+            color: app.pal.positive if root.is_income else app.pal.negative
+            center: self.parent.center
+    BoxLayout:
+        orientation: "vertical"
+        padding: 0, dp(14)
+        Text:
+            text: root.title
+            font_size: "16sp"
+            bold: True
+        BoxLayout:
+            spacing: dp(4)
+            Icon:
+                icon: "repeat" if root.recurring else ""
+                font_size: "14sp"
+                size: (dp(16), dp(18)) if root.recurring else (0, dp(18))
+                pos_hint: {"center_y": .5}
+                color: app.pal.primary
+            Text:
+                text: root.subtitle
+                font_size: "13sp"
+                color: app.pal.primary if root.recurring else app.pal.text_muted
+    AutoText:
+        text: root.amount
+        bold: True
+        font_size: "16sp"
+        color: app.pal.positive if root.is_income else app.pal.negative
+
+<EmptyDay@Card>:
+    orientation: "vertical"
+    size_hint_y: None
+    height: dp(150)
+    padding: dp(20), dp(22)
+    spacing: dp(4)
+    radius: dp(20)
+    Widget:
+        size_hint_y: None
+        height: dp(48)
+        canvas:
+            Color:
+                rgba: app.pal.surface_alt
+            Ellipse:
+                pos: self.center_x - dp(24), self.y
+                size: dp(48), dp(48)
+        Icon:
+            icon: "calendar-blank-outline"
+            color: app.pal.text_muted
+            center: self.parent.center
+    Text:
+        text: "Nothing on this day"
+        halign: "center"
+        bold: True
+        font_size: "16sp"
+        size_hint_y: None
+        height: dp(28)
+    Text:
+        text: "Tap + to add an expense or income."
+        color: app.pal.text_muted
+        halign: "center"
+        size_hint_y: None
+        height: dp(20)
+
+<HomeScreen>:
+    name: "home"
+    canvas.before:
+        Color:
+            rgba: app.pal.bg
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    BoxLayout:
+        orientation: "vertical"
+        padding: 0, app.inset_top, 0, 0
+
+        TopBar:
+            padding: dp(20), 0, dp(8), 0
+            Widget:
+                size_hint: None, None
+                size: dp(34), dp(34)
+                pos_hint: {"center_y": .5}
+                canvas:
+                    Color:
+                        rgba: app.pal.primary
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [dp(11)]
+                Icon:
+                    icon: "wallet-outline"
+                    color: app.pal.primary_fg
+                    font_size: "19sp"
+                    center: self.parent.center
+            Text:
+                text: "EasyBudget"
+                font_size: "21sp"
+                bold: True
+                padding: dp(8), 0
+            IconButton:
+                icon: "calendar-today"
+                pos_hint: {"center_y": .5}
+                on_release: root.go_today()
+            IconButton:
+                icon: "white-balance-sunny" if app.is_dark else "weather-night"
+                pos_hint: {"center_y": .5}
+                on_release: app.toggle_theme()
+            IconButton:
+                icon: "cog-outline"
+                pos_hint: {"center_y": .5}
+                on_release: app.open_settings()
+
+        ScrollView:
+            id: scroll
+            do_scroll_x: False
+            bar_width: 0
+            BoxLayout:
+                orientation: "vertical"
+                size_hint_y: None
+                height: self.minimum_height
+                padding: dp(16), dp(4), dp(16), dp(120) + app.inset_bottom
+                spacing: dp(16)
+
+                # ---------------- balance card
+                GradientCard:
+                    id: hero
+                    orientation: "vertical"
+                    size_hint_y: None
+                    height: self.minimum_height
+                    padding: dp(22), dp(16), dp(16), dp(16)
+                    spacing: dp(2)
+                    color_a: app.pal.hero_top
+                    color_b: app.pal.hero_bottom
+                    BoxLayout:
+                        size_hint_y: None
+                        height: dp(34)
+                        Text:
+                            id: hero_label
+                            color: with_alpha(app.pal.hero_fg, 0.85)
+                            font_size: "14sp"
+                        Pill:
+                            icon: "pencil-outline"
+                            text: "Adjust"
+                            fg: app.pal.hero_fg
+                            bg: with_alpha(app.pal.hero_fg, 0.16)
+                            pos_hint: {"center_y": .5}
+                            on_release: app.open_adjust_balance()
+                    Text:
+                        id: hero_amount
+                        color: app.pal.hero_fg
+                        font_size: "38sp"
+                        bold: True
+                        size_hint_y: None
+                        height: dp(54)
+                    BoxLayout:
+                        size_hint_y: None
+                        height: dp(36) if hero_status.text else 0
+                        opacity: 1 if hero_status.text else 0
+                        padding: 0, dp(2), 0, dp(2)
+                        Pill:
+                            id: hero_status
+                            fg: app.pal.hero_fg
+                            bg: with_alpha(app.pal.hero_fg, 0.16)
+                            pos_hint: {"center_y": .5}
+                        Widget:
+                    BoxLayout:
+                        size_hint_y: None
+                        height: dp(62)
+                        spacing: dp(10)
+                        padding: 0, dp(12), 0, 0
+                        StatChip:
+                            id: stat_in
+                            icon: "arrow-bottom-left"
+                        StatChip:
+                            id: stat_out
+                            icon: "arrow-top-right"
+
+                # ---------------- calendar
+                Card:
+                    orientation: "vertical"
+                    size_hint_y: None
+                    height: self.minimum_height
+                    padding: dp(8), dp(6), dp(8), dp(10)
+                    radius: dp(26)
+                    BoxLayout:
+                        size_hint_y: None
+                        height: dp(50)
+                        IconButton:
+                            icon: "chevron-left"
+                            color: app.pal.primary
+                            pos_hint: {"center_y": .5}
+                            on_release: root.shift_month(-1)
+                        Text:
+                            id: month_title
+                            halign: "center"
+                            font_size: "17sp"
+                            bold: True
+                        IconButton:
+                            icon: "chevron-right"
+                            color: app.pal.primary
+                            pos_hint: {"center_y": .5}
+                            on_release: root.shift_month(1)
+                    BoxLayout:
+                        id: weekdays
+                        size_hint_y: None
+                        height: dp(24)
+                        WeekdayLabel:
+                        WeekdayLabel:
+                        WeekdayLabel:
+                        WeekdayLabel:
+                        WeekdayLabel:
+                        WeekdayLabel:
+                        WeekdayLabel:
+                    MonthGrid:
+                        id: grid
+
+                # ---------------- selected day
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(30)
+                    padding: dp(6), 0
+                    Text:
+                        id: day_title
+                        font_size: "17sp"
+                        bold: True
+                    Text:
+                        id: day_count
+                        color: app.pal.primary if root.today_selected else app.pal.text_muted
+                        halign: "right"
+                        font_size: "13sp"
+                        bold: True
+                        size_hint_x: None
+                        width: dp(110)
+                BoxLayout:
+                    id: txn_list
+                    orientation: "vertical"
+                    size_hint_y: None
+                    height: self.minimum_height
+                    spacing: dp(10)
+
+    SpeedDial:
+        id: dial
+        on_add: app.open_editor(recurring=False)
+        on_add_recurring: app.open_editor(recurring=True)
+
+# ====================================================================== EDIT
+
+<EditScreen>:
+    name: "edit"
+    canvas.before:
+        Color:
+            rgba: app.pal.bg
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    BoxLayout:
+        orientation: "vertical"
+        padding: 0, app.inset_top, 0, app.inset_bottom
+
+        TopBar:
+            IconButton:
+                icon: "arrow-left"
+                pos_hint: {"center_y": .5}
+                on_release: app.go_back()
+            Text:
+                text: root.title
+                font_size: "20sp"
+                bold: True
+                padding: dp(8), 0
+
+        ScrollView:
+            do_scroll_x: False
+            bar_width: 0
+            BoxLayout:
+                orientation: "vertical"
+                size_hint_y: None
+                height: self.minimum_height
+                padding: dp(16), dp(4), dp(16), dp(12)
+                spacing: dp(12)
+
+                Segmented:
+                    id: kind
+
+                BoxLayout:
+                    orientation: "vertical"
+                    size_hint_y: None
+                    height: dp(84)
+                    Text:
+                        text: "Amount"
+                        halign: "center"
+                        color: app.pal.text_muted
+                        font_size: "13sp"
+                        size_hint_y: None
+                        height: dp(20)
+                    Text:
+                        text: app.currency + root.amount_display
+                        halign: "center"
+                        font_size: "44sp"
+                        bold: True
+                        color: (app.pal.positive if root.kind == "income" else app.pal.negative) if root.amount_raw else app.pal.text_muted
+
+                Field:
+                    id: note
+                    label: "Description"
+                    hint: "e.g. Groceries, Rent, Salary"
+                    icon: "text-short"
+
+                PickerRow:
+                    icon: "calendar-month-outline"
+                    label: "Date"
+                    value: root.date_text
+                    on_release: root.pick_date()
+
+                PickerRow:
+                    icon: "repeat"
+                    label: "Repeats"
+                    value: root.interval_text
+                    on_release: root.pick_interval()
+                    height: dp(64) if root.show_interval else 0
+                    opacity: 1 if root.show_interval else 0
+                    disabled: not root.show_interval
+
+        BoxLayout:
+            orientation: "vertical"
+            size_hint_y: None
+            height: self.minimum_height
+            padding: dp(16), dp(8), dp(16), dp(14)
+            spacing: dp(12)
+            canvas.before:
+                Color:
+                    rgba: app.pal.surface_alt
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [dp(28), dp(28), 0, 0]
+            Keypad:
+                on_key: root.on_key(args[1])
+            PrimaryButton:
+                text: root.save_text
+                icon: "check"
+                on_release: root.save()
+
+# ====================================================================== SETTINGS
+
+<SettingRow>:
+    size_hint_y: None
+    height: dp(72)
+    padding: dp(14), 0, dp(12), 0
+    spacing: dp(14)
+    radius: dp(20)
+    shadow: False
+    bg: 0, 0, 0, 0
+    Widget:
+        size_hint: None, None
+        size: dp(40), dp(40)
+        pos_hint: {"center_y": .5}
+        canvas:
+            Color:
+                rgba: app.pal.primary_soft
+            Ellipse:
+                pos: self.pos
+                size: self.size
+        Icon:
+            icon: root.icon
+            color: app.pal.primary
+            font_size: "20sp"
+            center: self.parent.center
+    BoxLayout:
+        orientation: "vertical"
+        padding: 0, dp(14)
+        Text:
+            text: root.title
+            font_size: "16sp"
+            bold: True
+        Text:
+            text: root.subtitle
+            font_size: "13sp"
+            color: app.pal.text_muted
+    AutoText:
+        text: root.value
+        font_size: "15sp"
+        bold: True
+        color: app.pal.primary
+    Icon:
+        icon: "chevron-right" if root.chevron else ""
+        color: app.pal.text_muted
+        pos_hint: {"center_y": .5}
+        width: dp(24) if root.chevron else 0
+
+<SettingHeader@BoxLayout>:
+    icon: ""
+    title: ""
+    subtitle: ""
+    size_hint_y: None
+    height: dp(52)
+    padding: dp(4), 0
+    spacing: dp(14)
+    Widget:
+        size_hint: None, None
+        size: dp(40), dp(40)
+        pos_hint: {"center_y": .5}
+        canvas:
+            Color:
+                rgba: app.pal.primary_soft
+            Ellipse:
+                pos: self.pos
+                size: self.size
+        Icon:
+            icon: root.icon
+            color: app.pal.primary
+            font_size: "20sp"
+            center: self.parent.center
+    BoxLayout:
+        orientation: "vertical"
+        padding: 0, dp(4)
+        Text:
+            text: root.title
+            font_size: "16sp"
+            bold: True
+        Text:
+            text: root.subtitle
+            font_size: "13sp"
+            color: app.pal.text_muted
+
+<SettingsScreen>:
+    name: "settings"
+    canvas.before:
+        Color:
+            rgba: app.pal.bg
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    BoxLayout:
+        orientation: "vertical"
+        padding: 0, app.inset_top, 0, 0
+
+        TopBar:
+            IconButton:
+                icon: "arrow-left"
+                pos_hint: {"center_y": .5}
+                on_release: app.go_back()
+            Text:
+                text: "Settings"
+                font_size: "20sp"
+                bold: True
+                padding: dp(8), 0
+
+        ScrollView:
+            do_scroll_x: False
+            bar_width: 0
+            BoxLayout:
+                orientation: "vertical"
+                size_hint_y: None
+                height: self.minimum_height
+                padding: dp(16), 0, dp(16), dp(24) + app.inset_bottom
+                spacing: dp(10)
+
+                SectionLabel:
+                    text: "APPEARANCE"
+                Card:
+                    orientation: "vertical"
+                    size_hint_y: None
+                    height: self.minimum_height
+                    padding: dp(12), dp(12), dp(12), dp(14)
+                    spacing: dp(12)
+                    radius: dp(24)
+                    SettingHeader:
+                        icon: "palette-outline"
+                        title: "Theme"
+                        subtitle: "Follow your phone, or choose light or dark"
+                    Segmented:
+                        id: theme_seg
+
+                SectionLabel:
+                    text: "BUDGET"
+                Card:
+                    orientation: "vertical"
+                    size_hint_y: None
+                    height: self.minimum_height
+                    padding: dp(4)
+                    radius: dp(24)
+                    SettingRow:
+                        id: currency_row
+                        icon: "cash-multiple"
+                        title: "Currency"
+                        subtitle: "Symbol shown next to amounts"
+                        on_release: app.pick_currency()
+                    SettingRow:
+                        id: threshold_row
+                        icon: "bell-alert-outline"
+                        title: "Low balance warning"
+                        subtitle: "Days below this turn orange"
+                        on_release: app.edit_threshold()
+                    SettingRow:
+                        icon: "scale-balance"
+                        title: "Adjust current balance"
+                        subtitle: "Match the app to your real account"
+                        on_release: app.open_adjust_balance()
+                Card:
+                    orientation: "vertical"
+                    size_hint_y: None
+                    height: self.minimum_height
+                    padding: dp(12), dp(12), dp(12), dp(14)
+                    spacing: dp(12)
+                    radius: dp(24)
+                    SettingHeader:
+                        icon: "calendar-week"
+                        title: "First day of the week"
+                        subtitle: "Used by the calendar"
+                    Segmented:
+                        id: week_seg
+
+                SectionLabel:
+                    text: "ABOUT"
+                Card:
+                    orientation: "vertical"
+                    size_hint_y: None
+                    height: self.minimum_height
+                    padding: dp(4)
+                    radius: dp(24)
+                    SettingRow:
+                        icon: "shield-check-outline"
+                        title: "Private & offline"
+                        subtitle: "No ads, no tracking, no account"
+                        chevron: False
+                    SettingRow:
+                        icon: "information-outline"
+                        title: "EasyBudget for Android"
+                        subtitle: "Version " + app.version_name
+                        chevron: False

@@ -1,0 +1,100 @@
+name: Android APK
+
+# Builds the Android app into an installable APK on GitHub's servers.
+# Download it from the run's "Artifacts" section (EasyBudget-apk).
+
+on:
+  push:
+    paths:
+      - "android/**"
+      - ".github/workflows/android-apk.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - ".github/workflows/android-apk.yml"
+  workflow_dispatch:
+
+env:
+  PYTHONFORANDROID_PREREQUISITES_INSTALL_INTERACTIVE: 0
+
+jobs:
+  tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Run data layer tests
+        working-directory: android
+        run: python -m unittest discover -s tests -v
+
+  apk:
+    name: Build debug APK
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      HAS_KEYSTORE_SECRET: ${{ secrets.DEBUG_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Buildozer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y automake libltdl-dev
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade buildozer
+
+      # Android SDK / NDK downloads (~3 GB) are reused between runs.
+      - name: Cache Android SDK and NDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.buildozer
+          key: buildozer-sdk-${{ runner.os }}-${{ hashFiles('android/buildozer.spec') }}
+          restore-keys: buildozer-sdk-${{ runner.os }}-
+
+      # Every APK must be signed with the SAME key, otherwise Android refuses
+      # to install it over the previous version (you'd have to uninstall and
+      # lose your data). Best: store a keystore in the DEBUG_KEYSTORE_BASE64
+      # secret (see android/README.md). Fallback: reuse a cached one.
+      - name: Restore cached signing key
+        if: env.HAS_KEYSTORE_SECRET != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
+      - name: Use signing key from secret (if configured)
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+            mkdir -p ~/.android
+            echo "$DEBUG_KEYSTORE_BASE64" | base64 --decode > ~/.android/debug.keystore
+            echo "Using the keystore from the DEBUG_KEYSTORE_BASE64 secret."
+          elif [ -f ~/.android/debug.keystore ]; then
+            echo "Using the cached keystore."
+          else
+            echo "::warning::No saved signing key yet - a new one will be generated. See android/README.md to make it permanent."
+          fi
+
+      - name: Build APK
+        working-directory: android
+        run: buildozer android debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: EasyBudget-apk
+          path: android/bin/*.apk
+          if-no-files-found: error
