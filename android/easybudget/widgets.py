@@ -21,6 +21,8 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.modalview import ModalView
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.stencilview import StencilView
 from kivy.uix.textinput import TextInput
 from kivymd.icon_definitions import md_icons
 
@@ -222,12 +224,7 @@ class DayCell(BoxLayout):
 
 
 class MonthGrid(GridLayout):
-    """
-    7 x 6 grid of DayCells. Tap a day to select it; swipe left/right to change
-    month. The owner fills the cells with `show()`.
-    """
-
-    __events__ = ("on_day", "on_swipe")
+    """7 x 6 grid of DayCells (display only). Fill it with `show()`."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -253,35 +250,201 @@ class MonthGrid(GridLayout):
             cell.status = statuses.get(iso, "ok")
             d += timedelta(days=1)
 
-    # --- touch handling -------------------------------------------------
+    def cell_at(self, x, y):
+        for cell in self.cells:
+            if cell.collide_point(x, y):
+                return cell
+        return None
+
+
+class MonthPager(StencilView):
+    """
+    A month calendar you can swipe like a carousel: the grid follows your
+    finger, the neighbouring month slides in beside it, and on release it
+    glides to that month (or springs back if the swipe was too short).
+
+    `provider(delta)` must return MonthGrid.show() arguments for the visible
+    month + delta (delta = -1 previous, 0 current, +1 next).
+    Events: on_day(iso) when a day is tapped, on_page(delta) after the slide.
+    """
+
+    offset = NumericProperty(0)          # horizontal drag offset in pixels
+    row_height = NumericProperty(dp(54))
+    __events__ = ("on_day", "on_page")
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.provider = None
+        self._neighbor_dir = 0           # which month the neighbour grid shows
+        self._busy = False               # True while a slide animation runs
+        self.neighbor = MonthGrid(size_hint=(None, None), opacity=0)
+        self.current = MonthGrid(size_hint=(None, None))
+        for grid in (self.neighbor, self.current):
+            self.add_widget(grid)
+        self.bind(pos=self._layout, size=self._layout, offset=self._layout,
+                  row_height=self._layout)
+        self._layout()
+
+    # --- drawing ------------------------------------------------------------
+    def show(self, **data):
+        self.current.show(**data)
+
+    def _layout(self, *_):
+        for grid in (self.current, self.neighbor):
+            grid.row_default_height = self.row_height
+            grid.size = (self.width, self.row_height * 6)
+        self.current.pos = (self.x + self.offset, self.y)
+        self.neighbor.pos = (self.x + self.offset + self._neighbor_dir * self.width, self.y)
+
+    def _prepare_neighbor(self, delta):
+        if delta != self._neighbor_dir and delta and self.provider:
+            self.neighbor.show(**self.provider(delta))
+        self._neighbor_dir = delta
+        self.neighbor.opacity = 1 if delta else 0
+        self._layout()
+
+    # --- programmatic paging (arrow buttons) ----------------------------------
+    def page(self, delta):
+        if self._busy:
+            return
+        self._prepare_neighbor(delta)
+        self._glide_to(delta)
+
+    def _glide_to(self, delta):
+        """Animate to the neighbouring month (delta != 0) or back (delta == 0)."""
+        self._busy = True
+        target = -delta * self.width
+        distance = abs(target - self.offset) / max(self.width, 1)
+        anim = Animation(offset=target, d=0.12 + 0.2 * distance, t="out_cubic")
+
+        def _done(*_):
+            if delta:
+                self.dispatch("on_page", delta)   # owner shows the new month in `current`
+            self.offset = 0
+            self._prepare_neighbor(0)
+            self._busy = False
+
+        anim.bind(on_complete=_done)
+        anim.start(self)
+
+    # --- touch handling -------------------------------------------------------
     def on_touch_down(self, touch):
-        if self.collide_point(touch.ox, touch.oy) or self.collide_point(*touch.pos):
-            touch.grab(self)
-            touch.ud["monthgrid"] = True
+        if not self.collide_point(touch.ox, touch.oy):
+            return False
+        if self._busy:
             return True
-        return super().on_touch_down(touch)
+        touch.grab(self)
+        touch.ud[self] = {"dragging": False, "samples": [(touch.time_update, touch.x)]}
+        self._drag(touch)
+        return True
+
+    def on_touch_move(self, touch):
+        if touch.grab_current is not self:
+            return False
+        self._drag(touch)
+        return True
+
+    def _drag(self, touch):
+        state = touch.ud.get(self)
+        if state is None:
+            return
+        dx = touch.x - touch.ox
+        dy = touch.y - touch.oy
+        if not state["dragging"]:
+            if abs(dx) < dp(6) or abs(dx) < abs(dy):
+                return
+            state["dragging"] = True
+        state["samples"] = (state["samples"] + [(touch.time_update, touch.x)])[-6:]
+        self._prepare_neighbor(1 if dx < 0 else -1)
+        self.offset = max(-self.width, min(self.width, dx))
 
     def on_touch_up(self, touch):
         if touch.grab_current is not self:
-            return super().on_touch_up(touch)
+            return False
         touch.ungrab(self)
-        dx = touch.x - touch.ox
-        dy = touch.y - touch.oy
-        if abs(dx) > dp(48) and abs(dx) > abs(dy) * 1.4:
-            self.dispatch("on_swipe", -1 if dx > 0 else 1)
+        state = touch.ud.get(self)
+        if state is None:
             return True
-        if abs(dx) < dp(14) and abs(dy) < dp(14):
-            for cell in self.cells:
-                if cell.collide_point(*touch.pos):
-                    self.dispatch("on_day", cell.iso)
-                    break
+        if state["dragging"]:
+            self._glide_to(self._release_target(state["samples"]))
+        elif abs(touch.x - touch.ox) < dp(14) and abs(touch.y - touch.oy) < dp(14):
+            cell = self.current.cell_at(*touch.pos)
+            if cell is not None:
+                self.dispatch("on_day", cell.iso)
         return True
+
+    def _release_target(self, samples):
+        """Month to glide to after letting go: +1 next, -1 previous, 0 stay.
+        Same rule as Android's ViewPager: a quick flick (>= 400dp/s over at
+        least 25dp) turns the page, otherwise the drag must pass 35%."""
+        t_end, x_end = samples[-1]
+        recent = [s for s in samples if t_end - s[0] <= 0.1] or samples[-2:]
+        t_start, x_start = recent[0] if len(recent) > 1 else samples[max(0, len(samples) - 2)]
+        velocity = (x_end - x_start) / (t_end - t_start) if t_end - t_start > 0.004 else 0
+        if abs(self.offset) >= dp(25) and abs(velocity) >= dp(400) \
+                and (velocity < 0) == (self.offset < 0):
+            return 1 if velocity < 0 else -1
+        if abs(self.offset) > self.width * 0.35:
+            return 1 if self.offset < 0 else -1
+        return 0
 
     def on_day(self, iso):
         pass
 
-    def on_swipe(self, direction):
+    def on_page(self, delta):
         pass
+
+
+class DirectionLockScrollView(ScrollView):
+    """
+    A vertical ScrollView that lets sideways swipes which start on
+    `swipe_target` (the calendar) go to it instead of scrolling the page.
+
+    Kivy's ScrollView starts scrolling as soon as a finger drifts ~20px
+    vertically, which almost every real sideways swipe does. Here a touch on
+    the calendar first waits until it has moved `lock_distance`, then is
+    locked to whichever direction it mostly moved in.
+    """
+
+    swipe_target = ObjectProperty(None, allownone=True)
+    lock_distance = NumericProperty(dp(10))
+
+    def on_scroll_start(self, touch, check_children=True):
+        handled = super().on_scroll_start(touch, check_children)
+        ud = touch.ud.get(self._get_uid())
+        if handled and ud is not None and self._starts_on_target(touch):
+            ud["eb_lock"] = "undecided"
+        return handled
+
+    def _starts_on_target(self, touch):
+        target = self.swipe_target
+        if target is None or target.parent is None or self.parent is None:
+            return False
+        wx, wy = self.parent.to_window(touch.ox, touch.oy)
+        x0, y0 = target.to_window(target.x, target.y)
+        x1, y1 = target.to_window(target.right, target.top)
+        return x0 <= wx <= x1 and y0 <= wy <= y1
+
+    def on_scroll_move(self, touch):
+        ud = touch.ud.get(self._get_uid())
+        lock = ud.get("eb_lock") if ud is not None else None
+        if lock and ud["mode"] == "unknown":
+            if lock == "handing_over":
+                return True                     # waiting for Kivy to pass the touch on
+            dx = abs(touch.x - touch.ox)
+            dy = abs(touch.y - touch.oy)
+            if max(dx, dy) < self.lock_distance:
+                return True                     # direction not clear yet
+            if dx > dy:
+                # Sideways: give the touch to the calendar. Kivy's own handoff
+                # runs on the next frame, outside this event, where the touch
+                # is in window coordinates as it expects.
+                ud["eb_lock"] = "handing_over"
+                Clock.schedule_once(self._change_touch_mode, 0)
+                return True
+            ud["eb_lock"] = None                # vertical: scroll right away
+            ud["mode"] = "scroll"
+        return super().on_scroll_move(touch)
 
 
 # ---------------------------------------------------------------------------

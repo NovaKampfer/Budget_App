@@ -16,7 +16,7 @@ from kivy.uix.widget import Widget
 from kivy.factory import Factory
 
 from .widgets import (
-    BottomSheet, Field, IconButton, Keypad, MonthGrid, PrimaryButton, SheetRow, Text,
+    BottomSheet, Field, IconButton, Keypad, MonthPager, PrimaryButton, SheetRow, Text,
     TextButton, apply_key, pretty_amount,
 )
 
@@ -160,8 +160,8 @@ class DatePickerSheet(BottomSheet):
         prev_btn = IconButton(icon="chevron-left", pos_hint={"center_y": .5})
         next_btn = IconButton(icon="chevron-right", pos_hint={"center_y": .5})
         self.month_label = Text(halign="center", font_size="17sp", bold=True)
-        prev_btn.bind(on_release=lambda *_: self.shift(-1))
-        next_btn.bind(on_release=lambda *_: self.shift(1))
+        prev_btn.bind(on_release=lambda *_: self.pager.page(-1))
+        next_btn.bind(on_release=lambda *_: self.pager.page(1))
         header.add_widget(prev_btn)
         header.add_widget(self.month_label)
         header.add_widget(next_btn)
@@ -172,18 +172,20 @@ class DatePickerSheet(BottomSheet):
         for name in weekday_names(week_start):
             weekdays.add_widget(Factory.WeekdayLabel(text=name))
 
-        self.grid = MonthGrid(row_default_height=dp(46), height=dp(46) * 6)
-        self.grid.bind(on_day=lambda _g, iso: self._picked(iso),
-                       on_swipe=lambda _g, direction: self.shift(direction))
+        self.pager = MonthPager(row_height=dp(46))
+        self.pager.provider = self.month_data
+        self.pager.bind(on_day=lambda _p, iso: self._picked(iso),
+                        on_page=lambda _p, delta: self.shift(delta))
 
         today_btn = TextButton(text="Today")
         today_btn.bind(on_release=lambda *_: self._picked(date.today().isoformat()))
         cancel_btn = TextButton(text="Cancel", muted=True)
         cancel_btn.bind(on_release=lambda *_: self.dismiss())
 
-        for w in (header, weekdays, self.grid,
+        for w in (header, weekdays, self.pager,
                   _buttons_row(Widget(), cancel_btn, today_btn)):
             self.body.add_widget(w)
+        self.card.ids.scroll.swipe_target = self.pager
         self.refresh()
 
     def shift(self, months):
@@ -191,10 +193,15 @@ class DatePickerSheet(BottomSheet):
         self.view = date(idx // 12, idx % 12 + 1, 1)
         self.refresh()
 
+    def month_data(self, delta=0):
+        idx = self.view.year * 12 + self.view.month - 1 + delta
+        month_start = date(idx // 12, idx % 12 + 1, 1)
+        return dict(first_day=first_visible_day(month_start, self.week_start),
+                    month=month_start.month, selected_iso=self.current.isoformat())
+
     def refresh(self):
         self.month_label.text = f"{calendar.month_name[self.view.month]} {self.view.year}"
-        first = first_visible_day(self.view, self.week_start)
-        self.grid.show(first, self.view.month, self.current.isoformat())
+        self.pager.show(**self.month_data())
 
     def _picked(self, iso):
         self.dismiss()

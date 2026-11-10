@@ -422,10 +422,11 @@
 
 <MonthGrid>:
     cols: 7
-    size_hint_y: None
     row_force_default: True
-    row_default_height: dp(54)
-    height: dp(54) * 6
+
+<MonthPager>:
+    size_hint_y: None
+    height: self.row_height * 6
 
 <WeekdayLabel@Text>:
     halign: "center"
@@ -560,7 +561,7 @@
         size_hint_y: None
         height: dp(22) if self.text else 0
         padding: dp(4), 0
-    ScrollView:
+    DirectionLockScrollView:
         id: scroll
         size_hint_y: None
         height: min(body.height, Window.height * 0.72)

@@ -57,8 +57,10 @@ class HomeScreen(Screen):
     today_selected = BooleanProperty(True)
 
     def on_kv_post(self, *_):
-        self.ids.grid.bind(on_day=lambda _g, iso: self.select_day(iso),
-                           on_swipe=lambda _g, direction: self.shift_month(direction))
+        pager = self.ids.pager
+        pager.provider = self.month_data
+        pager.bind(on_day=lambda _p, iso: self.select_day(iso),
+                   on_page=lambda _p, delta: self.shift_month(delta))
 
     # --- navigation ---------------------------------------------------------
     def select_day(self, iso: str):
@@ -70,14 +72,40 @@ class HomeScreen(Screen):
 
     def shift_month(self, delta: int):
         app = App.get_running_app()
-        idx = app.view_year * 12 + app.view_month - 1 + delta
-        app.view_year, app.view_month = idx // 12, idx % 12 + 1
-        today = date.today()
-        if (today.year, today.month) == (app.view_year, app.view_month):
-            app.selected = today
-        else:
-            app.selected = date(app.view_year, app.view_month, 1)
+        app.view_year, app.view_month = self._month_after(delta)
+        app.selected = self._default_day(app.view_year, app.view_month)
         self.refresh()
+
+    @staticmethod
+    def _month_after(delta: int):
+        app = App.get_running_app()
+        idx = app.view_year * 12 + app.view_month - 1 + delta
+        return idx // 12, idx % 12 + 1
+
+    @staticmethod
+    def _default_day(year: int, month: int) -> date:
+        """The day selected when you move to a month: today, else the 1st."""
+        today = date.today()
+        return today if (today.year, today.month) == (year, month) else date(year, month, 1)
+
+    def month_data(self, delta: int = 0) -> dict:
+        """Calendar contents for the visible month + delta (used by the pager)."""
+        return self._calendar(delta)[0]
+
+    def _calendar(self, delta: int):
+        """(MonthGrid.show() arguments, {iso: balance}) for the visible month + delta."""
+        app = App.get_running_app()
+        y, m = self._month_after(delta)
+        app.ensure_generated(y, m)
+        first = first_visible_day(date(y, m, 1), app.week_start)
+        last = first + timedelta(days=41)
+        balances = db.daily_balances(first.isoformat(), last.isoformat())
+        selected = app.selected if delta == 0 else self._default_day(y, m)
+        return dict(
+            first_day=first, month=m, selected_iso=selected.isoformat(),
+            amounts={iso: compact_amount(c) for iso, c in balances.items()},
+            statuses={iso: app.balance_status(c) for iso, c in balances.items()},
+        ), balances
 
     def go_today(self):
         self.select_day(date.today().isoformat())
@@ -86,23 +114,14 @@ class HomeScreen(Screen):
     def refresh(self):
         app = App.get_running_app()
         y, m = app.view_year, app.view_month
-        app.ensure_generated(y, m)
-
         month_start, month_end = month_bounds(y, m)
-        first = first_visible_day(month_start, app.week_start)
-        last = first + timedelta(days=41)
-        balances = db.daily_balances(first.isoformat(), last.isoformat())
-
-        amounts, statuses = {}, {}
-        for iso, cents in balances.items():
-            amounts[iso] = compact_amount(cents)
-            statuses[iso] = app.balance_status(cents)
+        data, balances = self._calendar(0)
 
         ids = self.ids
         ids.month_title.text = f"{calendar.month_name[m]} {y}"
         for label, name in zip(ids.weekdays.children[::-1], weekday_names(app.week_start)):
             label.text = name
-        ids.grid.show(first, m, app.selected.isoformat(), amounts, statuses)
+        ids.pager.show(**data)
 
         # Balance card
         sel_iso = app.selected.isoformat()
