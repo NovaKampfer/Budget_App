@@ -57,8 +57,12 @@ android.api = 34
 # (int) Minimum API your APK / AAB will support (Android 7.0)
 android.minapi = 24
 
-# (list) The Android archs to build for (64-bit phones + older 32-bit ones)
-android.archs = arm64-v8a, armeabi-v7a
+# (list) The Android archs to build for.
+# 64-bit ARM covers practically every phone made since ~2017.
+# Don't add armeabi-v7a back for now: python-for-android re-creates its
+# build virtualenv for the second arch on top of the first one, which breaks
+# pip ("cannot import name 'capture_logging'") and fails the build.
+android.archs = arm64-v8a
 
 # (bool) Automatically accept the SDK license agreements (needed for CI)
 android.accept_sdk_license = True

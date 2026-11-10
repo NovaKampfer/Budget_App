@@ -118,6 +118,8 @@ android/
 
 ## Notes
 
+- The APK is built for 64-bit ARM phones (`arm64-v8a`), which covers
+  practically every phone from the last several years.
 - `buildozer.spec` targets Android API 34. That's right for installing the APK
   yourself; publishing on Google Play would need a newer target API (and an app
   name other than "EasyBudget", which is already taken there).

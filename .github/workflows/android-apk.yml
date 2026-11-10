@@ -40,9 +40,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Pinned: Buildozer / python-for-android are tested up to Python 3.14.
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.x"
+          python-version: "3.13"
 
       - uses: actions/setup-java@v6
         with:
