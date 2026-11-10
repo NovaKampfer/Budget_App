@@ -25,6 +25,10 @@ A clean, **ad-free**, fully **offline** budget tracker for your phone, with a
 - **Adjust current balance** to match your real bank account.
 - **Settings** – theme (follow phone / light / dark), currency, low balance
   warning, first day of the week.
+- **Backup** – Settings → Export data saves everything (all profiles,
+  transactions, recurring entries and settings) to a file wherever you choose
+  (Downloads, Google Drive...). Import data restores such a file. No storage
+  permission is needed: Android's own file picker is used.
 - **Private** – no ads, no tracking, no account, no internet permission.
   Data stays in the app's private storage on your phone.
 
@@ -46,6 +50,14 @@ repository's **Actions** tab → *Android APK* → *Run workflow*.
 
 The first build takes roughly 20–40 minutes (it downloads the Android SDK/NDK);
 later builds reuse a cache.
+
+#### Updating without losing data
+
+Install the new APK over the old one - your data stays. If Android says the
+app "conflicts with an existing package", the new APK was signed with a
+different key (each build shows its key fingerprint in the run summary). In
+that case: **Settings → Export data**, uninstall, install the new APK, then
+**Settings → Import data**.
 
 #### Keep updates installable (recommended, one time)
 

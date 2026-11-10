@@ -93,3 +93,56 @@ def system_bar_overlap():
         print(f"[easybudget] could not read window insets: {exc}")
         return 0, 0
 
+
+
+def enable_high_refresh_rate() -> float:
+    """
+    Ask Android to run the screen at its fastest refresh rate (e.g. 120 Hz)
+    while the app is open, like native apps do. Returns that rate so the app
+    can draw at the same speed (60 on a computer or if it can't be read).
+    """
+    if not IS_ANDROID:
+        return 60.0
+    try:
+        from jnius import autoclass
+
+        activity = _activity()
+        display = activity.getWindowManager().getDefaultDisplay()
+        current = display.getMode()
+        best = current
+        for mode in display.getSupportedModes():
+            same_size = (mode.getPhysicalWidth() == current.getPhysicalWidth()
+                         and mode.getPhysicalHeight() == current.getPhysicalHeight())
+            if same_size and mode.getRefreshRate() > best.getRefreshRate():
+                best = mode
+        rate = float(best.getRefreshRate())
+        mode_id = best.getModeId()
+        sdk = autoclass("android.os.Build$VERSION").SDK_INT
+    except Exception as exc:
+        print(f"[easybudget] could not read display modes: {exc}")
+        return 60.0
+
+    try:
+        from android.runnable import run_on_ui_thread
+    except Exception:
+        return rate
+
+    @run_on_ui_thread
+    def _apply():
+        try:
+            window = activity.getWindow()
+            params = window.getAttributes()
+            params.preferredDisplayModeId = mode_id
+            window.setAttributes(params)
+        except Exception as exc:
+            print(f"[easybudget] could not set display mode: {exc}")
+        if sdk >= 30:   # Android 11+: also tell the system how fast we draw
+            try:
+                surface = autoclass("org.libsdl.app.SDLActivity").getNativeSurface()
+                if surface is not None:
+                    surface.setFrameRate(rate, 0)   # FRAME_RATE_COMPATIBILITY_DEFAULT
+            except Exception as exc:
+                print(f"[easybudget] could not set surface frame rate: {exc}")
+
+    _apply()
+    return rate

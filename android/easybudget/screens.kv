@@ -627,6 +627,25 @@
                         id: week_seg
 
                 SectionLabel:
+                    text: "BACKUP"
+                Card:
+                    orientation: "vertical"
+                    size_hint_y: None
+                    height: self.minimum_height
+                    padding: dp(4)
+                    radius: dp(24)
+                    SettingRow:
+                        icon: "tray-arrow-up"
+                        title: "Export data"
+                        subtitle: "Save a backup file (Downloads, Drive...)"
+                        on_release: app.export_backup()
+                    SettingRow:
+                        icon: "tray-arrow-down"
+                        title: "Import data"
+                        subtitle: "Restore a backup - replaces current data"
+                        on_release: app.import_backup()
+
+                SectionLabel:
                     text: "ABOUT"
                 Card:
                     orientation: "vertical"

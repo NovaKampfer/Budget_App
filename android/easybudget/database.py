@@ -495,3 +495,125 @@ def replace_rule_from(rule_id: int, from_iso: str, new_start_iso: str, cents: in
     end_rule_before(rule_id, min(from_iso, new_start_iso))
     return create_rule(new_start_iso, cents, note, every_n, unit, generate_until_iso,
                        account_id=account_id)
+
+
+# ---------------------------------------------------------------------------
+# Backup: export everything to a plain dict (saved as JSON) and restore it
+# ---------------------------------------------------------------------------
+BACKUP_APP = "EasyBudget"
+BACKUP_FORMAT = 1
+
+_RULE_COLS = ("id", "start_date", "amount_cents", "note", "every_n", "unit",
+              "last_generated_date", "end_date", "account_id")
+_TXN_COLS = ("id", "date", "amount_cents", "note", "rule_id", "account_id")
+
+
+def export_data() -> dict:
+    """Every profile, transaction, recurring rule and setting."""
+    from datetime import datetime
+
+    c = conn()
+    return {
+        "app": BACKUP_APP,
+        "format": BACKUP_FORMAT,
+        "exported_at": datetime.now().isoformat(timespec="seconds"),
+        "settings": {r["key"]: r["value"] for r in c.execute("SELECT key, value FROM settings")},
+        "accounts": [dict(r) for r in c.execute("SELECT id, name FROM accounts ORDER BY id")],
+        "recurring_rules": [dict(r) for r in c.execute(
+            f"SELECT {', '.join(_RULE_COLS)} FROM recurring_rules ORDER BY id")],
+        "transactions": [dict(r) for r in c.execute(
+            f"SELECT {', '.join(_TXN_COLS)} FROM transactions ORDER BY id")],
+    }
+
+
+def _check_date(value, what, allow_none=False):
+    if value is None and allow_none:
+        return
+    try:
+        date.fromisoformat(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"The backup has an invalid {what}") from None
+
+
+def validate_backup(data) -> None:
+    """Raise ValueError with a readable message if `data` isn't a usable backup."""
+    if not isinstance(data, dict) or data.get("app") != BACKUP_APP:
+        raise ValueError("This file isn't an EasyBudget backup")
+    fmt = data.get("format")
+    if not isinstance(fmt, int) or fmt > BACKUP_FORMAT:
+        raise ValueError("This backup was made by a newer version of the app")
+    for key in ("settings", "accounts", "recurring_rules", "transactions"):
+        if not isinstance(data.get(key), dict if key == "settings" else list):
+            raise ValueError("The backup file is incomplete")
+    accounts = data["accounts"]
+    if not accounts:
+        raise ValueError("The backup has no profiles")
+    account_ids = set()
+    for a in accounts:
+        if not isinstance(a, dict) or not isinstance(a.get("id"), int) \
+                or not isinstance(a.get("name"), str) or not a["name"].strip():
+            raise ValueError("The backup has an invalid profile")
+        account_ids.add(a["id"])
+    rule_ids = set()
+    for r in data["recurring_rules"]:
+        if not isinstance(r, dict) or any(k not in r for k in _RULE_COLS):
+            raise ValueError("The backup has an invalid recurring entry")
+        if not all(isinstance(r[k], int) for k in ("id", "amount_cents", "every_n", "account_id")) \
+                or r["unit"] not in UNITS or r["every_n"] < 1 or r["account_id"] not in account_ids:
+            raise ValueError("The backup has an invalid recurring entry")
+        _check_date(r["start_date"], "recurring entry date")
+        _check_date(r["last_generated_date"], "recurring entry date", allow_none=True)
+        _check_date(r["end_date"], "recurring entry date", allow_none=True)
+        rule_ids.add(r["id"])
+    for t in data["transactions"]:
+        if not isinstance(t, dict) or any(k not in t for k in _TXN_COLS):
+            raise ValueError("The backup has an invalid transaction")
+        if not isinstance(t["id"], int) or not isinstance(t["amount_cents"], int) \
+                or t["account_id"] not in account_ids \
+                or (t["rule_id"] is not None and t["rule_id"] not in rule_ids):
+            raise ValueError("The backup has an invalid transaction")
+        _check_date(t["date"], "transaction date")
+    for key, value in data["settings"].items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            raise ValueError("The backup has invalid settings")
+
+
+def import_data(data: dict) -> None:
+    """
+    Replace ALL current data with the backup. Everything happens in one
+    database transaction, so a bad file can never leave half-imported data.
+    """
+    validate_backup(data)
+    c = conn()
+    with c:
+        for table in ("transactions", "recurring_rules", "accounts", "settings"):
+            c.execute(f"DELETE FROM {table}")
+        c.executemany("INSERT INTO accounts(id, name) VALUES (?, ?)",
+                      [(a["id"], a["name"].strip()) for a in data["accounts"]])
+        c.executemany(
+            f"INSERT INTO recurring_rules({', '.join(_RULE_COLS)}) "
+            f"VALUES ({', '.join('?' for _ in _RULE_COLS)})",
+            [tuple(r[k] for k in _RULE_COLS) for r in data["recurring_rules"]])
+        c.executemany(
+            f"INSERT INTO transactions({', '.join(_TXN_COLS)}) "
+            f"VALUES ({', '.join('?' for _ in _TXN_COLS)})",
+            [tuple(t[k] if k != "note" else (t[k] or "") for k in _TXN_COLS)
+             for t in data["transactions"]])
+        c.executemany("INSERT INTO settings(key, value) VALUES (?, ?)",
+                      list(data["settings"].items()))
+    _load_current_account()
+
+
+def describe_backup(data: dict) -> str:
+    """e.g. '2 profiles · 418 transactions · saved Nov 9, 2026'"""
+    n_acc, n_txn = len(data.get("accounts", [])), len(data.get("transactions", []))
+    text = (f"{n_acc} profile{'s' if n_acc != 1 else ''} · "
+            f"{n_txn} transaction{'s' if n_txn != 1 else ''}")
+    try:
+        from datetime import datetime
+
+        saved = datetime.fromisoformat(data["exported_at"])
+        text += f" · saved {saved:%b} {saved.day}, {saved.year}"
+    except (KeyError, TypeError, ValueError):
+        pass
+    return text

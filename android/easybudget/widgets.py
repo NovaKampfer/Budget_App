@@ -9,6 +9,7 @@ from kivy.animation import Animation
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.window import Window
+from kivy.graphics import PopMatrix, PushMatrix, Translate
 from kivy.graphics.texture import Texture
 from kivy.metrics import dp
 from kivy.properties import (
@@ -224,13 +225,39 @@ class DayCell(BoxLayout):
 
 
 class MonthGrid(GridLayout):
-    """7 x 6 grid of DayCells (display only). Fill it with `show()`."""
+    """
+    7 x 6 grid of DayCells (display only). Fill it with `show()`.
+
+    The selected-day and today highlights are drawn once by the grid (see
+    widgets.kv) instead of by every cell: invisible per-cell shapes would
+    still cost a GPU draw call each, every frame.
+    """
+
+    sel_rect = ListProperty([0, 0, dp(40), dp(40)])
+    sel_visible = BooleanProperty(False)
+    today_rect = ListProperty([0, 0, dp(40), dp(40)])
+    today_visible = BooleanProperty(False)
 
     def __init__(self, **kwargs):
+        self._marks = (None, None)
         super().__init__(**kwargs)
         self.cells = [DayCell() for _ in range(42)]
         for cell in self.cells:
             self.add_widget(cell)
+
+    def do_layout(self, *args):
+        super().do_layout(*args)
+        self._update_marks()
+
+    def _update_marks(self):
+        selected_iso, today_iso = self._marks
+        self.sel_visible = self.today_visible = False
+        for cell in self.cells:
+            rect = [cell.x, cell.y, cell.width, cell.height]
+            if cell.iso == selected_iso:
+                self.sel_rect, self.sel_visible = rect, True
+            elif cell.iso == today_iso:
+                self.today_rect, self.today_visible = rect, True
 
     def show(self, first_day: date, month: int, selected_iso: str,
              amounts=None, statuses=None):
@@ -249,6 +276,8 @@ class MonthGrid(GridLayout):
             cell.amount = amounts.get(iso, "")
             cell.status = statuses.get(iso, "ok")
             d += timedelta(days=1)
+        self._marks = (selected_iso, today)
+        self._update_marks()
 
     def cell_at(self, x, y):
         for cell in self.cells:
@@ -265,7 +294,14 @@ class MonthPager(StencilView):
 
     `provider(delta)` must return MonthGrid.show() arguments for the visible
     month + delta (delta = -1 previous, 0 current, +1 next).
-    Events: on_day(iso) when a day is tapped, on_page(delta) after the slide.
+    Events: on_day(iso) when a day is tapped, on_page(delta) after a slide.
+
+    To keep month changes instant:
+    - the previous and next months are drawn ahead of time (in idle frames),
+      so a swipe never waits for 42 cells to be filled in;
+    - after a slide the grids are rotated, not re-filled;
+    - a new tap or swipe finishes a running slide at once instead of being
+      ignored until it ends.
     """
 
     offset = NumericProperty(0)          # horizontal drag offset in pixels
@@ -275,64 +311,127 @@ class MonthPager(StencilView):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.provider = None
-        self._neighbor_dir = 0           # which month the neighbour grid shows
-        self._busy = False               # True while a slide animation runs
-        self.neighbor = MonthGrid(size_hint=(None, None), opacity=0)
-        self.current = MonthGrid(size_hint=(None, None))
-        for grid in (self.neighbor, self.current):
-            self.add_widget(grid)
-        self.bind(pos=self._layout, size=self._layout, offset=self._layout,
-                  row_height=self._layout)
+        self.grids = {d: MonthGrid(size_hint=(None, None)) for d in (-1, 0, 1)}
+        self._fresh = {-1: False, 1: False}   # neighbour grids up to date?
+        self._showing = 0                     # neighbour currently attached (0 = none)
+        self._glide = None                    # (animation, finish callback) while sliding
+        # Grids are moved with a Translate instruction instead of changing
+        # their position, so the cells are never re-laid out while sliding.
+        self._shift = {}
+        for grid in self.grids.values():
+            grid.canvas.before.insert(0, PushMatrix())
+            self._shift[grid] = Translate()
+            grid.canvas.before.insert(1, self._shift[grid])
+            grid.canvas.after.add(PopMatrix())
+        self.add_widget(self.grids[0])       # neighbours are only attached while sliding
+        self._prefetch_trigger = Clock.create_trigger(self._prefetch, 0.05)
+        self.bind(pos=self._layout, size=self._layout, row_height=self._layout,
+                  offset=self._move)
         self._layout()
+
+    @property
+    def current(self):
+        return self.grids[0]
 
     # --- drawing ------------------------------------------------------------
     def show(self, **data):
-        self.current.show(**data)
+        """Show the visible month; neighbours are refreshed in a later frame."""
+        if self._glide is not None:
+            # An explicit jump (e.g. to today) wins over a slide still running.
+            anim, _finish = self._glide
+            self._glide = None
+            anim.cancel(self)
+            self.offset = 0
+            self._show_neighbor(0)
+        self.grids[0].show(**data)
+        self._fresh = {-1: False, 1: False}
+        self._prefetch_trigger()
+
+    def _prefetch(self, *_):
+        if self._glide is not None or not self.provider:
+            self._prefetch_trigger()          # busy: try again shortly
+            return
+        for d in (-1, 1):
+            if not self._fresh[d] and d != self._showing:
+                self.grids[d].show(**self.provider(d))
+                self._fresh[d] = True
 
     def _layout(self, *_):
-        for grid in (self.current, self.neighbor):
+        for grid in self.grids.values():
             grid.row_default_height = self.row_height
             grid.size = (self.width, self.row_height * 6)
-        self.current.pos = (self.x + self.offset, self.y)
-        self.neighbor.pos = (self.x + self.offset + self._neighbor_dir * self.width, self.y)
+            grid.pos = self.pos
+        self._move()
 
-    def _prepare_neighbor(self, delta):
-        if delta != self._neighbor_dir and delta and self.provider:
-            self.neighbor.show(**self.provider(delta))
-        self._neighbor_dir = delta
-        self.neighbor.opacity = 1 if delta else 0
-        self._layout()
+    def _move(self, *_):
+        self._shift[self.grids[0]].x = self.offset
+        for d in (-1, 1):
+            self._shift[self.grids[d]].x = self.offset + d * self.width
 
-    # --- programmatic paging (arrow buttons) ----------------------------------
-    def page(self, delta):
-        if self._busy:
+    def _show_neighbor(self, delta):
+        """Attach the grid for month + delta (or detach it when delta == 0)."""
+        if delta == self._showing:
             return
-        self._prepare_neighbor(delta)
+        if self._showing:
+            self.remove_widget(self.grids[self._showing])
+        if delta:
+            if not self._fresh[delta] and self.provider:
+                self.grids[delta].show(**self.provider(delta))
+                self._fresh[delta] = True
+            self.add_widget(self.grids[delta], index=len(self.children))
+        self._showing = delta
+
+    # --- paging ---------------------------------------------------------------
+    def page(self, delta):
+        """Slide to the previous (-1) / next (+1) month (arrow buttons)."""
+        self.finish_slide()
+        self._show_neighbor(delta)
         self._glide_to(delta)
+
+    def finish_slide(self):
+        """Jump to the end of a running slide right away."""
+        if self._glide is not None:
+            anim, finish = self._glide
+            anim.cancel(self)
+            finish()
 
     def _glide_to(self, delta):
         """Animate to the neighbouring month (delta != 0) or back (delta == 0)."""
-        self._busy = True
         target = -delta * self.width
         distance = abs(target - self.offset) / max(self.width, 1)
-        anim = Animation(offset=target, d=0.12 + 0.2 * distance, t="out_cubic")
+        anim = Animation(offset=target, d=0.06 + 0.16 * distance, t="out_cubic")
 
-        def _done(*_):
+        def finish(*_):
+            if self._glide is None or self._glide[0] is not anim:
+                return
+            self._glide = None
             if delta:
-                self.dispatch("on_page", delta)   # owner shows the new month in `current`
+                # Rotate: the grid that slid in (already attached) becomes the
+                # current month; the old current month is detached and becomes
+                # the neighbour on the other side.
+                g = self.grids
+                outgoing, incoming = g[0], g[delta]
+                self.remove_widget(outgoing)
+                g[-delta], g[0], g[delta] = outgoing, incoming, g[-delta]
+                self._showing = 0
+                self._fresh = {-delta: False, delta: False}
+            else:
+                self._show_neighbor(0)
             self.offset = 0
-            self._prepare_neighbor(0)
-            self._busy = False
+            self._move()
+            if delta:
+                self.dispatch("on_page", delta)
+            self._prefetch_trigger()
 
-        anim.bind(on_complete=_done)
+        anim.bind(on_complete=finish)
+        self._glide = (anim, finish)
         anim.start(self)
 
     # --- touch handling -------------------------------------------------------
     def on_touch_down(self, touch):
         if not self.collide_point(touch.ox, touch.oy):
             return False
-        if self._busy:
-            return True
+        self.finish_slide()
         touch.grab(self)
         touch.ud[self] = {"dragging": False, "samples": [(touch.time_update, touch.x)]}
         self._drag(touch)
@@ -355,7 +454,7 @@ class MonthPager(StencilView):
                 return
             state["dragging"] = True
         state["samples"] = (state["samples"] + [(touch.time_update, touch.x)])[-6:]
-        self._prepare_neighbor(1 if dx < 0 else -1)
+        self._show_neighbor(1 if dx < 0 else -1)
         self.offset = max(-self.width, min(self.width, dx))
 
     def on_touch_up(self, touch):
@@ -408,6 +507,43 @@ class DirectionLockScrollView(ScrollView):
 
     swipe_target = ObjectProperty(None, allownone=True)
     lock_distance = NumericProperty(dp(10))
+
+    # --- keep the page still when its height changes ---------------------------
+    # Kivy remembers the scroll position as a fraction of the page, so when the
+    # page gets taller or shorter (e.g. a day with more or fewer transactions)
+    # everything visibly jumps. Instead we keep the distance from the top.
+    def __init__(self, **kwargs):
+        self._top_offset = 0.0
+        self._keeping = False
+        super().__init__(**kwargs)
+        self.fbind("scroll_y", self._remember_top)
+
+    def add_widget(self, widget, *args, **kwargs):
+        super().add_widget(widget, *args, **kwargs)
+        widget.fbind("height", self._keep_top)
+
+    def remove_widget(self, widget, *args, **kwargs):
+        widget.funbind("height", self._keep_top)
+        super().remove_widget(widget, *args, **kwargs)
+
+    def _scroll_range(self):
+        content = self._viewport
+        return max(0.0, content.height - self.height) if content else 0.0
+
+    def _remember_top(self, *_):
+        if not self._keeping:
+            self._top_offset = max(0.0, (1.0 - self.scroll_y) * self._scroll_range())
+
+    def _keep_top(self, *_):
+        scroll_range = self._scroll_range()
+        self._keeping = True
+        try:
+            if scroll_range > 0:
+                self.scroll_y = 1.0 - min(self._top_offset, scroll_range) / scroll_range
+            else:
+                self.scroll_y = 1.0
+        finally:
+            self._keeping = False
 
     def on_scroll_start(self, touch, check_children=True):
         handled = super().on_scroll_start(touch, check_children)
@@ -574,6 +710,17 @@ class SpeedDial(FloatLayout):
 # ---------------------------------------------------------------------------
 class SheetCard(BoxLayout):
     floating = BooleanProperty(False)
+    slide = NumericProperty(0)      # vertical offset while sliding in / out
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Slide with a Translate instead of moving the card, so its rows are
+        # not re-laid out on every animation frame.
+        self.canvas.before.insert(0, PushMatrix())
+        self._shift = Translate()
+        self.canvas.before.insert(1, self._shift)
+        self.canvas.after.add(PopMatrix())
+        self.bind(slide=lambda _c, v: setattr(self._shift, "y", v))
 
 
 class BottomSheet(ModalView):
@@ -609,7 +756,7 @@ class BottomSheet(ModalView):
 
     def open(self, *args, **kwargs):
         super().open(*args, **kwargs)
-        self.card.y = -self.card.height - dp(40)
+        self.card.slide = -Window.height * 2     # off screen until laid out
         if self.floating:
             self.card.opacity = 0
         Clock.schedule_once(self._slide_in, 0)
@@ -621,20 +768,23 @@ class BottomSheet(ModalView):
     def _slide_in(self, *_):
         if self.floating:
             self.card.x = dp(16)
-            self.card.y = self._floating_y() + dp(16)
-            Animation(y=self._floating_y(), opacity=1, d=0.2, t="out_cubic").start(self.card)
+            self.card.y = self._floating_y()
+            self.card.slide = dp(16)
+            Animation(slide=0, opacity=1, d=0.2, t="out_cubic").start(self.card)
             return
-        self.card.y = -self.card.height
-        Animation(y=0, d=0.24, t="out_cubic").start(self.card)
+        self.card.y = 0
+        self.card.slide = -self.card.height
+        Animation(slide=0, d=0.24, t="out_cubic").start(self.card)
 
     def dismiss(self, *args, **kwargs):
         if getattr(self, "_closing", False):
             return
         self._closing = True
+        Animation.cancel_all(self.card)
         if self.floating:
-            anim = Animation(opacity=0, y=self.card.y + dp(12), d=0.14, t="in_quad")
+            anim = Animation(opacity=0, slide=dp(12), d=0.14, t="in_quad")
         else:
-            anim = Animation(y=-self.card.height - dp(20), d=0.16, t="in_quad")
+            anim = Animation(slide=-self.card.height - dp(20), d=0.16, t="in_quad")
         anim.bind(on_complete=lambda *_: ModalView.dismiss(self, *args, **kwargs))
         anim.start(self.card)
 

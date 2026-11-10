@@ -110,3 +110,20 @@ def interval_label(every_n, unit) -> str:
     if unit == "month" and every_n % 12 == 0:
         return f"Every {every_n // 12} years"
     return f"Every {every_n} {unit}s" if every_n != 1 else f"Every {unit}"
+
+
+def backup_json(data: dict) -> str:
+    """
+    Backup data as JSON, one record per line: still valid JSON, but small and
+    easy to read (or search) in any text editor.
+    """
+    import json
+
+    parts = []
+    for key, value in data.items():
+        if isinstance(value, list):
+            rows = ",\n".join("  " + json.dumps(v, ensure_ascii=False) for v in value)
+            parts.append(f" {json.dumps(key)}: [\n{rows}\n ]" if value else f" {json.dumps(key)}: []")
+        else:
+            parts.append(f" {json.dumps(key)}: {json.dumps(value, ensure_ascii=False)}")
+    return "{\n" + ",\n".join(parts) + "\n}\n"

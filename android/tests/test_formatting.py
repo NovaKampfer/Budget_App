@@ -7,7 +7,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from easybudget.formatting import (  # noqa: E402
-    compact_amount, format_money, interval_label, parse_amount, parse_signed_amount,
+    backup_json, compact_amount, format_money, interval_label, parse_amount, parse_signed_amount,
 )
 
 
@@ -51,6 +51,16 @@ class TestFormatting(unittest.TestCase):
         self.assertEqual(interval_label(5, "day"), "Every 5 days")
         self.assertEqual(interval_label(24, "month"), "Every 2 years")
         self.assertEqual(interval_label(None, None), "")
+
+    def test_backup_json(self):
+        import json
+        data = {"app": "EasyBudget", "format": 1, "settings": {"currency": "€"},
+                "accounts": [{"id": 1, "name": "Café"}], "recurring_rules": [],
+                "transactions": [{"id": 1, "note": "a"}, {"id": 2, "note": None}]}
+        text = backup_json(data)
+        self.assertEqual(json.loads(text), data)
+        self.assertIn('  {"id": 2, "note": null}', text.splitlines())   # one record per line
+        self.assertIn("Café", text)
 
 
 if __name__ == "__main__":

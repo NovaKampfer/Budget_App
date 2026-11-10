@@ -93,6 +93,15 @@ jobs:
         working-directory: android
         run: buildozer android debug
 
+      # APKs only install over each other when this fingerprint matches.
+      - name: Show signing key fingerprint
+        run: |
+          fp=$(keytool -list -v -keystore ~/.android/debug.keystore -storepass android \
+               | grep -m1 "SHA256:" | awk '{print $2}')
+          echo "Signing key SHA-256: $fp"
+          echo "**Signing key (SHA-256):** \`$fp\`  " >> "$GITHUB_STEP_SUMMARY"
+          echo "APKs install over each other only when this matches." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:

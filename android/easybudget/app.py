@@ -3,6 +3,7 @@
 # The application object: owns the app-wide state (selected day, visible
 # month, settings, theme) and the actions that more than one screen uses.
 
+import json
 from datetime import date
 from pathlib import Path
 
@@ -15,16 +16,19 @@ from kivy.uix.screenmanager import ScreenManager, SlideTransition
 from kivymd.app import MDApp
 
 from . import database as db
-from .android_utils import IS_ANDROID, set_system_bars, system_bar_overlap, system_prefers_dark
+from .android_utils import (
+    IS_ANDROID, enable_high_refresh_rate, set_system_bars, system_bar_overlap, system_prefers_dark,
+)
 from .dialogs import (
     AmountSheet, action_sheet, choice_sheet, confirm_sheet, menu_sheet, text_sheet,
 )
-from .formatting import CURRENCIES, format_money, interval_label
+from .files import open_text, save_text
+from .formatting import CURRENCIES, backup_json, format_money, interval_label
 from .screens import EditScreen, HomeScreen, SettingsScreen, month_bounds, short_date
 from .theme import Palette, palette_values
 from .widgets import Toast
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 KV_DIR = Path(__file__).parent
 AHEAD_MONTHS = 13      # recurring entries are generated this far past the visible month
@@ -75,6 +79,7 @@ class EasyBudgetApp(MDApp):
     def on_start(self):
         Window.bind(on_keyboard=self._on_keyboard)
         set_system_bars(self.pal.bg, dark_icons=not self.is_dark)
+        self._match_display_speed()
         self._update_insets()
         self.home.refresh()
         Clock.schedule_interval(self._follow_system_theme, 2.0)
@@ -90,6 +95,7 @@ class EasyBudgetApp(MDApp):
         Clock.schedule_once(self._after_resume, 0.1)
 
     def _after_resume(self, *_):
+        self._match_display_speed()       # Android may reset it while we're away
         self._update_insets()
         self._follow_system_theme()
         if date.today() != self._last_seen_day:      # the app was resumed on a new day
@@ -106,6 +112,13 @@ class EasyBudgetApp(MDApp):
             self.low_balance = 10000
         self.week_start = db.get_setting("week_start")
         self.theme_mode = db.get_setting("theme")
+
+    def _match_display_speed(self):
+        """Draw as fast as the screen refreshes (Kivy's default cap is 60 fps,
+        which looks choppy on 90/120 Hz phones). Kivy only redraws when
+        something changed, so this costs nothing while the app is idle."""
+        rate = enable_high_refresh_rate()
+        Clock._max_fps = float(max(60, min(round(rate), 144)))
 
     def _update_insets(self):
         self.inset_top, self.inset_bottom = system_bar_overlap()
@@ -343,6 +356,60 @@ class EasyBudgetApp(MDApp):
         confirm_sheet(f"Delete \u201c{name}\u201d?",
                       "All of its transactions and recurring entries are deleted. "
                       "This can't be undone.", "Delete profile", _do)
+
+    # ------------------------------------------------------------------ backup
+    def export_backup(self, *_):
+        data = db.export_data()
+        filename = f"EasyBudget-backup-{date.today().isoformat()}.json"
+
+        def _done(saved, where, error):
+            if saved:
+                Toast.show(f"Backup saved to {where}" if where else "Backup saved",
+                           icon="content-save-outline")
+            elif error:
+                Toast.show(f"Couldn't save: {error}", icon="alert-circle-outline")
+
+        save_text(filename, backup_json(data), _done)
+
+    def import_backup(self, *_):
+        def _loaded(text, name, error):
+            if text is None:
+                if error:
+                    Toast.show(f"Couldn't open the file: {error}", icon="alert-circle-outline")
+                return
+            try:
+                data = json.loads(text)
+            except ValueError:
+                Toast.show("This file isn't an EasyBudget backup", icon="alert-circle-outline")
+                return
+            try:
+                db.validate_backup(data)
+            except ValueError as exc:
+                Toast.show(str(exc), icon="alert-circle-outline")
+                return
+            confirm_sheet(
+                "Restore this backup?",
+                f"{name + ': ' if name else ''}{db.describe_backup(data)}. "
+                "Everything currently in the app is replaced.",
+                "Restore", lambda: self._restore(data), danger=True)
+
+        open_text(_loaded)
+
+    def _restore(self, data):
+        try:
+            db.import_data(data)
+        except ValueError as exc:
+            Toast.show(str(exc), icon="alert-circle-outline")
+            return
+        self._load_settings()
+        self._update_account_name()
+        self.apply_theme()
+        self._generated_until = None
+        self.selected = date.today()
+        self.view_year, self.view_month = self.selected.year, self.selected.month
+        self.settings_screen.refresh()
+        self.home.refresh()
+        Toast.show("Backup restored", icon="backup-restore")
 
     # ------------------------------------------------------------------ settings actions
     def open_adjust_balance(self, *_):

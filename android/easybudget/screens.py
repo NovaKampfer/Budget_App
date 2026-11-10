@@ -12,6 +12,7 @@ import calendar
 from datetime import date, timedelta
 
 from kivy.app import App
+from kivy.clock import Clock
 from kivy.factory import Factory
 from kivy.properties import (
     BooleanProperty, NumericProperty, ObjectProperty, StringProperty,
@@ -111,21 +112,29 @@ class HomeScreen(Screen):
         self.select_day(date.today().isoformat())
 
     # --- drawing ------------------------------------------------------------
-    def refresh(self):
+    def refresh(self, *_):
+        """Redraw the calendar now; the balance card and list follow on the
+        next frame (rapid month changes only rebuild them once, at the end)."""
         app = App.get_running_app()
         y, m = app.view_year, app.view_month
-        month_start, month_end = month_bounds(y, m)
-        data, balances = self._calendar(0)
-
+        data, self._balances = self._calendar(0)
         ids = self.ids
         ids.month_title.text = f"{calendar.month_name[m]} {y}"
         for label, name in zip(ids.weekdays.children[::-1], weekday_names(app.week_start)):
             label.text = name
         ids.pager.show(**data)
+        if not hasattr(self, "_details_trigger"):
+            self._details_trigger = Clock.create_trigger(self._refresh_details, 0)
+        self._details_trigger()
+
+    def _refresh_details(self, *_):
+        app = App.get_running_app()
+        ids = self.ids
+        month_start, month_end = month_bounds(app.view_year, app.view_month)
 
         # Balance card
         sel_iso = app.selected.isoformat()
-        balance = balances.get(sel_iso)
+        balance = self._balances.get(sel_iso)
         if balance is None:
             balance = db.balance_on_or_before(sel_iso)
         today = date.today()
@@ -141,7 +150,7 @@ class HomeScreen(Screen):
         else:
             ids.hero_status.text = ""
         income, expense = db.period_totals(month_start.isoformat(), month_end.isoformat())
-        month_abbr = calendar.month_abbr[m]
+        month_abbr = calendar.month_abbr[app.view_month]
         ids.stat_in.label = f"Income · {month_abbr}"
         ids.stat_in.value = format_money(income, app.currency, plus=True)
         ids.stat_out.label = f"Expenses · {month_abbr}"
@@ -156,24 +165,33 @@ class HomeScreen(Screen):
         else:
             ids.day_count.text = (f"{len(rows)} entr{'y' if len(rows) == 1 else 'ies'}"
                                   if rows else "")
-        box = ids.txn_list
-        box.clear_widgets()
-        if not rows:
-            box.add_widget(Factory.EmptyDay())
-        for r in rows:
+        self._show_rows(rows)
+
+    def _show_rows(self, rows):
+        """Fill the list, reusing card widgets (creating widgets is the slow part)."""
+        app = App.get_running_app()
+        if not hasattr(self, "_items"):
+            self._items, self._empty = [], Factory.EmptyDay()
+        while len(self._items) < len(rows):
+            item = TxnItem()
+            item.bind(on_release=lambda it: app.open_txn_actions(it.txn_id))
+            self._items.append(item)
+        for item, r in zip(self._items, rows):
             cents = r["amount_cents"]
             recurring = r["rule_id"] is not None
-            item = TxnItem(
-                txn_id=r["id"],
-                title=r["note"] or ("Income" if cents > 0 else "Expense"),
-                subtitle=(interval_label(r["every_n"], r["unit"]) or "Recurring")
-                if recurring else "One-time",
-                amount=format_money(cents, app.currency, plus=True),
-                is_income=cents > 0,
-                recurring=recurring,
-            )
-            item.bind(on_release=lambda it: app.open_txn_actions(it.txn_id))
-            box.add_widget(item)
+            item.txn_id = r["id"]
+            item.title = r["note"] or ("Income" if cents > 0 else "Expense")
+            item.subtitle = ((interval_label(r["every_n"], r["unit"]) or "Recurring")
+                             if recurring else "One-time")
+            item.amount = format_money(cents, app.currency, plus=True)
+            item.is_income = cents > 0
+            item.recurring = recurring
+        wanted = self._items[:len(rows)] if rows else [self._empty]
+        box = self.ids.txn_list
+        if box.children[::-1] != wanted:
+            box.clear_widgets()
+            for widget in wanted:
+                box.add_widget(widget)
 
 
 # ---------------------------------------------------------------------------

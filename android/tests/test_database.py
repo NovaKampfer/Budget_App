@@ -265,5 +265,81 @@ class TestProfiles(DatabaseTestCase):
         self.assertEqual(db.balance_on_or_before("2026-11-04"), 20000)
 
 
+
+class TestBackup(DatabaseTestCase):
+    def _populate(self):
+        db.set_setting("currency", "€")
+        db.insert_txn("2026-11-01", 50000, "Pay")
+        db.create_rule("2026-11-01", -2500, "Life", 1, "day", "2026-11-30")
+        work = db.create_account("Work")
+        db.set_current_account(work)
+        db.insert_txn("2026-11-03", -999, "Lunch")
+        db.create_rule("2026-11-02", -100, "Coffee", 1, "week", "2026-12-31")
+        db.end_rule_before(db.rules_all()[-1]["id"], "2026-12-01")
+        return work
+
+    def test_round_trip(self):
+        import json
+        work = self._populate()
+        before = db.export_data()
+        text = json.dumps(before)
+        # import into a brand-new database
+        db.init(os.path.join(self.tmp.name, "other.db"))
+        db.import_data(json.loads(text))
+        after = db.export_data()
+        for key in ("settings", "accounts", "recurring_rules", "transactions"):
+            self.assertEqual(before[key], after[key], key)
+        self.assertEqual(db.current_account(), work)
+        self.assertEqual(db.balance_on_or_before("2026-12-31"), -999 - 5 * 100)  # Nov 2,9,16,23,30
+        # recurring rules keep generating after a restore
+        db.generate_all_until("2027-01-31")
+        rid = next(r["id"] for r in db.rules_all() if r["note"] == "Life")
+        self.assertEqual(db.get_rule(rid)["last_generated_date"], "2027-01-31")
+
+    def test_import_replaces_everything(self):
+        self._populate()
+        backup = db.export_data()
+        db.create_account("Extra")
+        db.set_current_account(1)
+        db.insert_txn("2026-11-05", 123, "after backup")
+        db.import_data(backup)
+        self.assertEqual([a["name"] for a in db.list_accounts()], ["Personal", "Work"])
+        self.assertFalse(any(t["note"] == "after backup" for t in db.export_data()["transactions"]))
+
+    def test_bad_backups_change_nothing(self):
+        self._populate()
+        good = db.export_data()
+        snapshot = db.export_data()
+        import copy
+        bad_cases = []
+        for mutate in (
+            lambda d: d.update(app="Other"),
+            lambda d: d.update(format=99),
+            lambda d: d.update(accounts=[]),
+            lambda d: d["transactions"][0].update(date="2026-13-45"),
+            lambda d: d["transactions"][0].update(account_id=999),
+            lambda d: d["transactions"][0].update(amount_cents="12"),
+            lambda d: d["recurring_rules"][0].update(unit="year"),
+            lambda d: d["transactions"][0].update(rule_id=12345),
+            lambda d: d.pop("transactions"),
+        ):
+            d = copy.deepcopy(good)
+            mutate(d)
+            bad_cases.append(d)
+        bad_cases += [[], "text", None]
+        for bad in bad_cases:
+            with self.assertRaises(ValueError):
+                db.import_data(bad)
+            now = db.export_data()
+            for key in ("settings", "accounts", "recurring_rules", "transactions"):
+                self.assertEqual(snapshot[key], now[key])
+
+    def test_describe(self):
+        self._populate()
+        text = db.describe_backup(db.export_data())
+        self.assertTrue(text.startswith("2 profiles · "), text)
+        self.assertIn("saved", text)
+
+
 if __name__ == "__main__":
     unittest.main()
